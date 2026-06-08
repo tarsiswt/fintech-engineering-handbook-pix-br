@@ -10,11 +10,12 @@ It's meant as a living document and contributions are welcomed.
 
 Everything you will read below is a way to adhere to the three principles:
 
-1. No invented data - Money can't be created out of nowhere, hence we can't tolerate duplicates or arbitrary balance
+1. **No invented data** - Money can't be created out of nowhere, hence we can't tolerate duplicates or arbitrary balance
    updates.
-2. No lost data - Everything that happens to money has to be tracked and persisted: no precision losses, at-least-once
+2. **No lost data** - Everything that happens to money has to be tracked and persisted: no precision losses,
+   at-least-once
    deliveries, event-sourcing, audit trails, immutability.
-3. No trust - Neither towards external providers, internal components nor the world. Failing on broken assumptions,
+3. **No trust** - Neither towards external providers, internal components nor the world. Failing on broken assumptions,
    verifying webhooks, verifying data across different sources.
 
 ## Guidelines
@@ -80,3 +81,29 @@ to handling currencies.
 
 **Principles touched:** No trust - validate currency against the controlled set at the boundary.
 No invented data - treating distinct currencies/assets as interchangeable conjures value.
+
+### Value time vs booking time vs settlement time
+
+Transactions will usually have at least two, sometimes three timestamps associated:
+
+1. Value time - time when transaction occurred
+2. Booking time - time when transaction was recorded in the system.
+
+Those two timestamps will almost always diverge. When booking time > value time, we have a backdated transaction.
+Technically, almost all transactions are backdated, but this term is most impactful when booking and value time fall
+under different reporting periods, e.g. days, months, years.
+
+When booking time < value time, we have a forward-dated transaction. This is less frequent but can happen e.g. ...
+
+Additionally, some transactions might have a third timestamp: settlement time. This is the time when money was actually
+transferred or materialized. Usually settlement time is expressed as T+X, where X is the number of days after which
+settlement happens, e.g. T+2 means settlement happens 2 days after value.
+
+Example: A card payment happened at T1, you recorded it at T2, but the payment provider transferred money to your
+account at T3.
+
+### FX Rates
+
+FX (Forex, foreign exchange currency market) rates allow us to convert money between currencies.
+
+1. Time of rate is critical - 
