@@ -93,14 +93,21 @@ Those two timestamps will almost always diverge. When booking time > value time,
 Technically, almost all transactions are backdated, but this term is most impactful when booking and value time fall
 under different reporting periods, e.g. days, months, years.
 
-When booking time < value time, we have a forward-dated transaction. This is less frequent but can happen e.g. ...
+When booking time < value time, we have a forward-dated transaction. This is less frequent but can happen e.g. with
+scheduled or future-dated payments - a standing order recorded today but effective next week.
 
 Additionally, some transactions might have a third timestamp: settlement time. This is the time when money was actually
 transferred or materialized. Usually settlement time is expressed as T+X, where X is the number of days after which
 settlement happens, e.g. T+2 means settlement happens 2 days after value.
 
-Example: A card payment happened at T1, you recorded it at T2, but the payment provider transferred money to your
-account at T3.
+Example: A card payment happened at T1 (value time), you recorded it at T2 (booking time), but the payment provider
+transferred money to your account at T3 (settlement time).
+
+Business and business-consumed reports usually care about value or settlement time while
+booking time is useful for traceability.
+
+**Principles touched:** No lost data - record every relevant timestamp; collapsing them into a single `created_at` loses
+information you can't reconstruct later.
 
 ### FX Rates
 
