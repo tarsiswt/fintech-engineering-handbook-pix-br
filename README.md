@@ -138,7 +138,8 @@ there's no canonical rate, so the source should be part of the data.
 Double-entry bookkeeping is a widely used way to store financial transactions as a list of entries in the form of
 `(credit account, debit account, amount)` (this is a compact form; the classic representation uses a separate debit
 and credit row per movement). It ensures that money always comes from somewhere and always goes to somewhere. External
-providers get dedicated accounts too, so money entering/leaving the system is still tracked. Because every entry moves the same amount
+providers get dedicated accounts too, so money entering/leaving the system is still tracked. Because every entry moves
+the same amount
 out of one account and into another, the books always balance - money is only moved, never created or destroyed.
 
 In this methodology, balance is never stored directly, but derived from the movements of money.
@@ -175,3 +176,34 @@ cross-system invariants), runtime checks catch violations at the point of occurr
 that catches bugs that already shipped - but catches them late.
 
 **Principles touched:** No trust - invariants are verified, not assumed; even your own code's output gets checked.
+
+### Funds reservation
+
+In most cases your transactions will require interaction with the external world. For example, you might need to
+run compliance checks before allowing a user to withdraw funds, or you need to register the withdrawal in an external
+system.
+
+In such cases you also have to avoid race conditions - spending the same money twice, or discovering "insufficient
+balance" only after the external world interaction already happened.
+
+To address this, systems implement funds reservation (also known as hold-and-release), where funds are first reserved
+for a particular transaction before the external interaction starts. Once it completes, the reservation is settled and
+the transaction proceeds; if anything goes wrong, the reservation is released and the funds return to the available
+balance.
+
+This pattern introduces a distinction between two balances: the **total balance** (everything the user owns, including
+reserved funds) and the **available balance** (`available = total - reserved`). Balance checks and new reservations are
+made against the available balance, which is what prevents the same funds from backing two transactions.
+
+A few practical notes:
+
+1. The final amount is not always known upfront - fees or rates may differ from the estimate. In that case you reserve
+   the estimated amount, settle the actual one and release the remainder.
+2. A reservation that's never settled nor released locks user funds, so every flow that creates one must guarantee it
+   eventually resolves it. An explicit expiry/timeout can serve as a safety net, but it's optional - you can rely on
+   internal system discipline instead. Notably, the failure mode is conservative: an orphaned reservation locks money,
+   it never loses or creates it.
+
+**Principles touched:** No invented data - the same funds can never back two transactions; a reservation makes this
+explicit instead of relying on a racy balance check.
+
