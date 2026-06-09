@@ -207,3 +207,32 @@ A few practical notes:
 **Principles touched:** No invented data - the same funds can never back two transactions; a reservation makes this
 explicit instead of relying on a racy balance check.
 
+### Handling overdrafts
+
+An overdraft happens when an account balance goes negative. Overdrafts come in two kinds:
+
+1. Intentional - an overdraft is a credit product the business explicitly offers, with limits and interest. This is a
+   business feature, not an anomaly, and is mostly out of scope here. This will most likely be modeled as a separate
+   overdraft account (liability for the user, receivable for the operator) with a positive balance.
+2. Unintentional - the balance goes negative even though policy forbids it.
+
+Unintentional overdrafts happen even in correct systems, because the external world doesn't ask for permission: a
+settlement comes in higher than the reserved estimate or a reversal lands after the funds already left. Funds
+reservation reduces the window for overdrafts but cannot eliminate it.
+
+**Forbidden is not the same as unrepresentable**. It's tempting to encode
+"balance is never negative" at the type or storage level as an unsigned integer or a `CHECK (balance >= 0)` constraint.
+But when we are forced to accept a negative balance, a system that cannot represent it will either crash mid-flow,
+silently
+clamp the balance to zero (inventing money), or do something similarly wrong.
+
+Put differently, "balance >= 0" is just an invariant and the usual toolbox applies: enforce it at runtime when
+authorizing transactions, detect violations post-factum with monitoring and reconciliation - but don't force it by
+construction. When an overdraft is detected, it's a signal to investigate but not necessarily a bug.
+
+When an overdraft does happen, we have to book it and recover explicitly, e.g. by netting it against future deposits,
+requesting repayment, or writing it off - as an explicit compensating entry to an expense/loss account, never by
+editing the balance.
+
+**Principles touched:** No invented data - clamping a negative balance to zero mints money. No trust - the external
+world can force an overdraft no matter what your checks say.
