@@ -4,7 +4,7 @@ Welcome to the Fintech Engineering Handbook. This resource aims to describe the 
 engineering, where money is the primary focus of the system. It can be read in full to get a comprehensive understanding
 or in parts when dealing with a particular problem.
 
-### Fow whom?
+### For whom?
 
 - **People joining fintech** - to get familiar with the domain and the patterns that make money systems trustworthy.
 - **People already in fintech** - as a reference to reach for when facing a particular problem, and a shared vocabulary
@@ -535,3 +535,43 @@ how to approach the problem.
   right.
 - **No lost data** - it's the safety net that catches the dropped fact - the missing webhook, the unsettled transfer -
   before it disappears for good.
+
+### Notifying reliably (Outbox and CDC)
+
+It's quite often a requirement to let the external world know about changes in our system in a reliable way. This can be
+done by publishing a Kafka event, dispatching a webhook call or through a plethora of other means. The problematic part
+is _reliably_ - we have to ensure at-least-once delivery, and those channels don't fit the usual transactionality model
+we tend to rely on. Without transactionality we risk either publishing and then rolling back our system's state (the
+publish succeeded but we didn't get the response due to a network issue, hence the rollback) or modifying the system
+state without publishing (because it genuinely failed but we didn't roll back).
+
+The textbook answer is a 2-phase commit/distributed transaction, but it's rarely used due to its complexity and the lack
+of a good way to standardize and reuse the approach. Instead the industry came up with the "outbox pattern", where a
+"publishing" event is written transactionally (with the state change) into a dedicated store and from there it's reliably
+processed (take a row, retry until success). In other words, we reliably save "publishing intent" and then process it
+later.
+
+Another way to solve this problem is through Change Data Capture (CDC) - an automated mechanism that detects changes
+committed to the database (typically by tailing its write-ahead/replication log) and turns them into a stream of events.
+Because it reads straight from the log, every committed change is captured and nothing is missed, without any explicit
+publishing code in the application. Tools like Debezium or AWS DMS implement this off the shelf. The tradeoff is coupling
+and operational weight: raw CDC emits events shaped like your table rows and needs postprocessing to avoid leaking the
+internal schema to consumers.
+
+Two other solutions are worth mentioning:
+
+- listen-to-yourself - we reverse the order and publish the event first (e.g. to Kafka), then rebuild our own state from
+  it.
+- event sourcing - the event log already lives in the database, so publishing is just a matter of reading from it (see
+  Event sourcing).
+
+Whichever mechanism you pick, delivery is at-least-once - the relay or connector can publish and then crash before
+recording that it did, re-sending on restart. Consumers must therefore be idempotent and deduplicate on a stable event
+id (see idempotency).
+
+**Principles touched:**
+
+- **No lost data** - a committed change must reliably reach its consumers; the outbox (or the log) guarantees the
+  notification can't be dropped just because a separate publish step failed.
+- **No invented data** - we never publish a notification for a change that didn't commit, and duplicate deliveries
+  collapse into a single effect instead of acting twice.
