@@ -51,7 +51,9 @@ other than not using floating points. These representations are not mutually exc
 and how you compute with it are separate decisions, and a system often combines them, e.g. integer storage with
 `BigDecimal` for intermediate computation.
 
-**Principles touched:** No lost data - the wrong representation silently drops precision that can never be recovered.
+**Principles touched:**
+
+- **No lost data** - the wrong representation silently drops precision that can never be recovered.
 
 ### Rounding strategies
 
@@ -67,8 +69,10 @@ and how you compute with it are separate decisions, and a system often combines 
    equal the original number. Depending on the context, this might require explicit handling - e.g. explicit rounding
    account.
 
-**Principles touched:** No lost data - residuals must be tracked, not dropped. No invented data - rounding must never
-mint money that wasn't there.
+**Principles touched:**
+
+- **No lost data** - residuals must be tracked, not dropped.
+- **No invented data** - rounding must never mint money that wasn't there.
 
 ### Currency handling
 
@@ -86,8 +90,10 @@ to handling currencies.
    but rarely for business logic.
 6. Pegged, bridged and wrapped crypto currencies are not equivalent to the underlying ones.
 
-**Principles touched:** No trust - validate currency against the controlled set at the boundary.
-No invented data - treating distinct currencies/assets as interchangeable conjures value.
+**Principles touched:**
+
+- **No trust** - validate currency against the controlled set at the boundary.
+- **No invented data** - treating distinct currencies/assets as interchangeable conjures value.
 
 ### Value time vs booking time vs settlement time
 
@@ -113,8 +119,10 @@ transferred money to your account at T3 (settlement time).
 Business and business-consumed reports usually care about value or settlement time while
 booking time is useful for traceability.
 
-**Principles touched:** No lost data - record every relevant timestamp; collapsing them into a single `created_at` loses
-information you can't reconstruct later.
+**Principles touched:**
+
+- **No lost data** - record every relevant timestamp; collapsing them into a single `created_at` loses information you
+  can't reconstruct later.
 
 ### FX Rates
 
@@ -137,8 +145,10 @@ FX (Forex, foreign exchange currency market) rates allow us to convert money bet
    The closest to canonical are central bank rates, which can be used only as a reference rate and even there we can
    have alternative sources which are just as valid.
 
-**Principles touched:** No lost data - keep the amounts (and, for reference rates, a way back to the source). No trust -
-there's no canonical rate, so the source should be part of the data.
+**Principles touched:**
+
+- **No lost data** - keep the amounts (and, for reference rates, a way back to the source).
+- **No trust** - there's no canonical rate, so the source should be part of the data.
 
 ### Double-entry bookkeeping
 
@@ -159,7 +169,9 @@ fees.
 
 By convention, posted entries are immutable - corrections are made with new compensating entries, never edits.
 
-**Principles touched:** No invented data - money is only ever moved between accounts, never created or destroyed.
+**Principles touched:**
+
+- **No invented data** - money is only ever moved between accounts, never created or destroyed.
 
 ### Invariants
 
@@ -182,7 +194,9 @@ desired level of trust. By construction is the strongest but cannot express ever
 cross-system invariants), runtime checks catch violations at the point of occurrence, and post-factum is the only one
 that catches bugs that already shipped - but catches them late.
 
-**Principles touched:** No trust - invariants are verified, not assumed; even your own code's output gets checked.
+**Principles touched:**
+
+- **No trust** - invariants are verified, not assumed; even your own code's output gets checked.
 
 ### Funds reservation
 
@@ -211,8 +225,10 @@ A few practical notes:
    internal system discipline instead. Notably, the failure mode is conservative: an orphaned reservation locks money,
    it never loses or creates it.
 
-**Principles touched:** No invented data - the same funds can never back two transactions; a reservation makes this
-explicit instead of relying on a racy balance check.
+**Principles touched:**
+
+- **No invented data** - the same funds can never back two transactions; a reservation makes this explicit instead of
+  relying on a racy balance check.
 
 ### Handling overdrafts
 
@@ -241,8 +257,10 @@ When an overdraft does happen, we have to book it and recover explicitly, e.g. b
 requesting repayment, or writing it off - as an explicit compensating entry to an expense/loss account, never by
 editing the balance.
 
-**Principles touched:** No invented data - clamping a negative balance to zero mints money. No trust - the external
-world can force an overdraft no matter what your checks say.
+**Principles touched:**
+
+- **No invented data** - clamping a negative balance to zero mints money.
+- **No trust** - the external world can force an overdraft no matter what your checks say.
 
 ### Audits and audit trails
 
@@ -265,7 +283,9 @@ triggered it (a user, an operator, an automated job), and why (a reference to th
 caused it). Money movements are the obvious subject, but manual interventions, configuration changes (fee schedules,
 rate sources, limits) and permission changes need trails too.
 
-**Principles touched:** No lost data - current state alone can't answer an audit's questions; only the full history can.
+**Principles touched:**
+
+- **No lost data** - current state alone can't answer an audit's questions; only the full history can.
 
 #### Event sourcing
 
@@ -289,8 +309,10 @@ A few practical notes:
 In other words: event sourcing is a very good solution when an audit trail is required, but it comes with a very high
 price in terms of system complexity.
 
-**Principles touched:** No lost data - when state is derived from events, the trail can't drift out of sync with reality
-because it *is* the source of truth.
+**Principles touched:**
+
+- **No lost data** - when state is derived from events, the trail can't drift out of sync with reality because it *is*
+  the source of truth.
 
 #### Immutability
 
@@ -310,8 +332,10 @@ worlds it's important to understand your reporting schedule and obligations - us
 once it has been reported, e.g. when the financial statement has been shared at the end of the month. Until then you
 might still be able to modify your data in place, if you detect the problem and fix it before it leaves your system.
 
-**Principles touched:** No trust - an editable history proves nothing; immutability and tamper evidence make the trail
-trustworthy to an outsider, including yourself investigating an incident.
+**Principles touched:**
+
+- **No trust** - an editable history proves nothing; immutability and tamper evidence make the trail trustworthy to an
+  outsider, including yourself investigating an incident.
 
 #### Reversals and corrections
 
@@ -331,8 +355,10 @@ backdate the event
 (specify a value time in the past) or not. Here a lot depends on the reporting schedule again - usually you won't be
 allowed to backdate anything to an already closed period, because it was already reported to the external world.
 
-**Principles touched:** No invented data - mistakes are fixed by posting linked compensating entries, never by editing
-or deleting what was already recorded.
+**Principles touched:**
+
+- **No invented data** - mistakes are fixed by posting linked compensating entries, never by editing or deleting what
+  was already recorded.
 
 #### Immutability vs GDPR
 
@@ -347,8 +373,10 @@ GDPR's right to erasure appears to contradict an immutable ledger. In practice i
    each user's personal fields with a per-user key and erase by deleting the key. Erasure becomes a key deletion, not a
    rewrite of history.
 
-**Principles touched:** No lost data - separating PII from financial data lets you honor erasure without losing the
-financial history you're obliged to keep.
+**Principles touched:**
+
+- **No lost data** - separating PII from financial data lets you honor erasure without losing the financial history
+  you're obliged to keep.
 
 ## External world
 
@@ -390,8 +418,10 @@ delivered twice must trigger the processing only once.
 Idempotency matters on both sides - when you make calls and when you receive them. Keep it in mind every time you
 consume or expose an operation.
 
-**Principles touched:** No invented data - retries are unavoidable, so processing must collapse duplicate deliveries
-into a single effect instead of moving money twice.
+**Principles touched:**
+
+- **No invented data** - retries are unavoidable, so processing must collapse duplicate deliveries into a single effect
+  instead of moving money twice.
 
 ### Handling webhooks
 
@@ -426,9 +456,12 @@ system) many of the points apply to other transport methods as well.
 There is a recurring theme here: don't trust the webhook. Treat it as a hint that *something*
 happened, not as a reliable, ordered, authentic statement of *what* happened.
 
-**Principles touched:** No trust - a webhook is an unauthenticated, unordered, possibly-lost, possibly-duplicated hint;
-verify the source and confirm the actual state against the API. No lost data - persist the raw event and back delivery
-up with reconciliation so a dropped webhook doesn't mean a dropped fact.
+**Principles touched:**
+
+- **No trust** - a webhook is an unauthenticated, unordered, possibly-lost, possibly-duplicated hint; verify the source
+  and confirm the actual state against the API.
+- **No lost data** - persist the raw event and back delivery up with reconciliation so a dropped webhook doesn't mean a
+  dropped fact.
 
 ### Consuming APIs
 
@@ -467,6 +500,8 @@ and to build defensively around it.
    production setup. Be prepared to test in production (e.g. through canary releases and controlled usage with small
    impact).
 
-**Principles touched:** No trust - the provider's code, schema and uptime are all outside your control, so verify facts
-against independent sources and validate everything at the boundary. No lost data - persisting every request and
-response keeps a record you can reconcile against and reprocess from.
+**Principles touched:**
+
+- **No trust** - the provider's code, schema and uptime are all outside your control, so verify facts against
+  independent sources and validate everything at the boundary.
+- **No lost data** - persisting every request and response keeps a record you can reconcile against and reprocess from.
