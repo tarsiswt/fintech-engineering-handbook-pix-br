@@ -57,6 +57,10 @@ other than not using floating points. These representations are not mutually exc
 and how you compute with it are separate decisions, and a system often combines them, e.g. integer storage with
 `BigDecimal` for intermediate computation.
 
+The same care applies when an amount is serialized. A bare JSON number is an IEEE-754 double in most parsers, so
+serializing money as a number reintroduces the floating-point problem at the edge, no matter how carefully you represent
+it internally. Send money either as a string (`"12.34"`) or as an integer in its smallest unit.
+
 **Principles touched:**
 
 - **No lost data** - the wrong representation silently drops precision that can never be recovered.
