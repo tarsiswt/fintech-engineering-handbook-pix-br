@@ -11,19 +11,14 @@
   // ElevenReader share link — paste the real URL after publishing the audiobook.
   var AUDIOBOOK_URL = ''; // e.g. 'https://elevenreader.io/...' ; empty = hidden
 
-  function injectFooter() {
-    const sidebar = document.querySelector('#quarto-sidebar-toc-left');
-    if (!sidebar || sidebar.querySelector('.sidebar-footer')) return;
-    const footer = document.createElement('div');
-    footer.className = 'sidebar-footer';
+  function footerMarkup() {
     var listen = AUDIOBOOK_URL
       ? '<nav class="listen-bar" aria-label="Listen to the audiobook">' +
           '<a class="listen-btn" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
             '<i class="bi bi-headphones"></i> Listen on ElevenReader</a>' +
         '</nav>'
       : '';
-    footer.innerHTML =
-      listen +
+    return listen +
       '<nav class="download-bar" aria-label="Download this handbook">' +
         '<span class="download-bar__label">Download</span>' +
         '<span class="download-pills">' +
@@ -37,7 +32,51 @@
         '<a href="' + LINKEDIN_URL + '" target="_blank" rel="noopener">' +
           '<i class="bi bi-linkedin"></i> Voytek Pitula</a>' +
       '</nav>';
-    sidebar.appendChild(footer);
+  }
+
+  // Mobile-only "grab it" card. The left TOC (and its pinned footer) is hidden
+  // below 768px, so the download/source links would otherwise be unreachable.
+  // Rather than bury a copy at the bottom of the article (poor discoverability),
+  // we surface a compact card right under the title block — the first thing a
+  // phone reader sees. Shown only on small screens via CSS.
+  function grabCardMarkup() {
+    var listen = AUDIOBOOK_URL
+      ? '<a class="grab-card__btn grab-card__btn--listen" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
+          '<i class="bi bi-headphones"></i> Listen</a>'
+      : '';
+    return '' +
+      '<span class="grab-card__label">Take it with you</span>' +
+      '<div class="grab-card__actions">' +
+        listen +
+        '<a class="grab-card__btn" href="index.pdf"  download><i class="bi bi-file-earmark-arrow-down"></i> PDF</a>' +
+        '<a class="grab-card__btn" href="index.epub" download><i class="bi bi-book"></i> EPUB</a>' +
+      '</div>' +
+      '<nav class="grab-card__links" aria-label="Source and author">' +
+        '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener">' +
+          '<i class="bi bi-github"></i> Source</a>' +
+        '<a href="' + LINKEDIN_URL + '" target="_blank" rel="noopener">' +
+          '<i class="bi bi-linkedin"></i> Voytek Pitula</a>' +
+      '</nav>';
+  }
+
+  function injectFooter() {
+    // Desktop/tablet (>=768px): pinned below the left TOC.
+    const sidebar = document.querySelector('#quarto-sidebar-toc-left');
+    if (sidebar && !sidebar.querySelector('.sidebar-footer')) {
+      const footer = document.createElement('div');
+      footer.className = 'sidebar-footer';
+      footer.innerHTML = footerMarkup();
+      sidebar.appendChild(footer);
+    }
+    // Mobile (<768px): a discoverable card just after the title block.
+    const title = document.querySelector('#title-block-header');
+    if (title && !document.querySelector('.grab-card')) {
+      const card = document.createElement('aside');
+      card.className = 'grab-card';
+      card.setAttribute('aria-label', 'Get this handbook');
+      card.innerHTML = grabCardMarkup();
+      title.insertAdjacentElement('afterend', card);
+    }
   }
 
   function scrollspy() {

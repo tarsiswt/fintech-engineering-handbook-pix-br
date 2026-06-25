@@ -171,18 +171,25 @@ nav[role="doc-toc"] .nav-link.active {
 // Make the sidebar a flex column: the (long, depth-4) TOC scrolls on its own,
 // while the download section stays pinned at the bottom and always visible
 // instead of being buried below 40+ TOC entries.
-#quarto-sidebar-toc-left {
-  display: flex !important;
-  flex-direction: column;
-  overflow: hidden !important;
-}
-#quarto-sidebar-toc-left > nav#TOC {
-  flex: 1 1 auto;
-  min-height: 0;          // required so the flex child can shrink and scroll
-  overflow-y: auto;
-}
-#quarto-sidebar-toc-left > .sidebar-footer {
-  flex: 0 0 auto;
+//
+// Scope this to the desktop breakpoint only. Below 992px Quarto collapses the
+// left TOC out of the grid; forcing `display: flex !important` here would keep
+// it rendered and overlay the article on mobile. Let Quarto's responsive
+// defaults handle the small-screen layout.
+@media (min-width: 992px) {
+  #quarto-sidebar-toc-left {
+    display: flex !important;
+    flex-direction: column;
+    overflow: hidden !important;
+  }
+  #quarto-sidebar-toc-left > nav#TOC {
+    flex: 1 1 auto;
+    min-height: 0;          // required so the flex child can shrink and scroll
+    overflow-y: auto;
+  }
+  #quarto-sidebar-toc-left > .sidebar-footer {
+    flex: 0 0 auto;
+  }
 }
 
 // ── Sidebar footer: Download + source/author links (pinned below the TOC) ────
@@ -191,6 +198,90 @@ nav[role="doc-toc"] .nav-link.active {
   padding-bottom: 1.75rem;
   border-top: 1px solid $rule;
   font-family: $font-family-sans-serif;
+}
+
+// ── Mobile "grab it" card ─────────────────────────────────────────────────
+// Injected right after the title block. The left TOC (and its pinned download
+// footer) is hidden below 768px, so this card carries the download + source
+// links to phone readers — placed up top, where it's seen first, rather than
+// buried at the end of the page. Hidden at >=768px where the sidebar shows.
+.grab-card { display: none; }
+
+@media (max-width: 767.98px) {
+  .grab-card {
+    display: block;
+    margin: 1.6rem 0 2.4rem;
+    padding: 1.1rem 1.15rem 1.2rem;
+    border: 1px solid rgba(11, 124, 114, 0.28);
+    border-radius: 12px;
+    // Faint paper-on-teal wash so it reads as an aside, not body copy.
+    background:
+      linear-gradient(180deg, rgba(11, 124, 114, 0.05), rgba(11, 124, 114, 0.02));
+    font-family: $font-family-sans-serif;
+  }
+  .grab-card__label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: $teal-deep;
+    margin-bottom: 0.75rem;
+  }
+  .grab-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  // Download/listen buttons: tappable, filled enough to read as primary actions.
+  .grab-card__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 2.6rem;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: $teal-deep;
+    background: #fff;
+    border: 1px solid rgba(11, 124, 114, 0.35);
+    border-radius: 9px;
+    text-decoration: none !important;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  }
+  .grab-card__btn:active { background: rgba(11, 124, 114, 0.08); }
+  .grab-card__btn .bi { font-size: 1.05rem; opacity: 0.85; }
+  // Audiobook is the headline action when present: solid teal, full width.
+  .grab-card__btn--listen {
+    flex-basis: 100%;
+    color: #fff;
+    background: $teal;
+    border-color: $teal;
+  }
+  .grab-card__btn--listen:active { background: $teal-deep; }
+  .grab-card__btn--listen .bi { opacity: 1; }
+  // Source / author: quiet text links beneath the actions.
+  .grab-card__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.1rem;
+    margin-top: 0.95rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid rgba(11, 124, 114, 0.16);
+  }
+  .grab-card__links a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.82rem;
+    color: $ink-soft;
+    text-decoration: none;
+  }
+  .grab-card__links .bi { font-size: 0.95rem; opacity: 0.8; }
 }
 // Audiobook call-to-action: a prominent "listen" button (links out to
 // ElevenReader; no embedded player). Sits at the top of the footer when present.

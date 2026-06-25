@@ -1,6 +1,6 @@
 ---
 title: "Fintech Engineering Handbook"
-subtitle: "Patterns for building software where money is the primary concern"
+subtitle: "Patterns for building software that handles money"
 author: "Voytek Pitula"
 date-modified: last-modified
 ---
