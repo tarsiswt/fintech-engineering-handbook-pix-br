@@ -834,10 +834,12 @@ and who it's pitched at, so you can pick by what you're missing.
 
 **Accounting & ledgers**
 
-- [*Accounting for Computer Scientists*](https://martin.kleppmann.com/2011/03/07/accounting-for-computer-scientists.html)
+- [*Accounting for Computer
+  Scientists*](https://martin.kleppmann.com/2011/03/07/accounting-for-computer-scientists.html)
   (essay, free online) — maps double-entry bookkeeping onto a graph/data model, written for engineers rather than
   accountants.
-- [*The Accounting Game: Basic Accounting Fresh from the Lemonade Stand*](https://www.goodreads.com/book/show/420846.Accounting_Game)
+- [*The Accounting Game: Basic Accounting Fresh from the Lemonade
+  Stand*](https://www.goodreads.com/book/show/420846.Accounting_Game)
   — accounting from first principles via a running lemonade-stand example; assumes no finance background.
 - [Modern Treasury, *How to Scale a Ledger*](https://www.moderntreasury.com/journal/how-to-scale-a-ledger-part-i)
   (article series, free online) — building a production ledger from a software-engineering angle.
@@ -852,7 +854,8 @@ and who it's pitched at, so you can pick by what you're missing.
 
 **Markets & trading**
 
-- [*Trading and Exchanges: Market Microstructure for Practitioners*](https://www.goodreads.com/book/show/1290158.Trading_and_Exchanges)
+- [*Trading and Exchanges: Market Microstructure for
+  Practitioners*](https://www.goodreads.com/book/show/1290158.Trading_and_Exchanges)
   — where order books, makers/takers and spreads come from; a long, detailed practitioner reference.
 
 **Crypto**
@@ -863,7 +866,8 @@ and who it's pitched at, so you can pick by what you're missing.
 
 **The engineering half**
 
-- [*Designing Data-Intensive Applications*](https://www.goodreads.com/book/show/23463279-designing-data-intensive-applications)
+- [*Designing Data-Intensive
+  Applications*](https://www.goodreads.com/book/show/23463279-designing-data-intensive-applications)
   — idempotency, logs, consistency and the failure modes this handbook keeps returning to, from the systems side.
 
 **KYC & AML**
@@ -875,4 +879,144 @@ itself, not the integration.
   awareness-level introduction to what laundering is and how detection and reporting work.
 - [*Mastering Anti-Money Laundering and Counter-Terrorist Financing*](https://www.goodreads.com/book/show/13698660) — a
   heavier practitioner guide to building an AML/CTF framework, with checklists and example documents.
+
+## Appendix B: End to end examples
+
+The body of this handbook takes each pattern on its own, which makes it hard to build holistic understanding and
+intuition. This appendix walks through common flows that act as simplified but representative examples of what you will
+see in a real system. A production implementation would have more steps, more failure branches and more bookkeeping, but
+the simplified version should be enough to get the general idea. They cover the three directions money moves: **out** of
+the system (a withdrawal), **into** it (a card deposit) and **within** it (a conversion).
+
+### Flow 1: A crypto withdrawal
+
+A user asks to withdraw 0.5 ETH to an external address. This is the richest of the three because money is leaving the
+system through an irreversible external effect - once the chain confirms the send, there is no taking it back.
+
+1. **The request arrives with an idempotency key.** The client may retry the submit (the network ate the response, the
+   user double-clicked), so the very first concern is that two deliveries of the same request create *one* withdrawal,
+   not two (see [Idempotency](#idempotency)). The key is scoped to this user and this operation.
+2. **Funds are reserved before anything irreversible happens.** You reserve 0.5 ETH plus an estimated network fee
+   against
+   the user's *available* balance (see [Funds reservation](#funds-reservation)). The balance check and the reservation
+   are a single linearizable step - otherwise two concurrent withdrawals could both pass the check and back their spends
+   with the same coins (see [Invariants](#invariants)). From here the user's *total* balance still includes the reserved
+   amount, but their *available* balance does not.
+3. **The compliance gate runs - and the flow may sleep here for days.** Before broadcasting, you screen the transaction
+   (sanctions, AML, the destination address). Here we tie several patterns together:
+    - It is an **external call**, so it will be slow, fail, or lie, and you build defensively around it (see
+      [Consuming APIs](#consuming-apis)).
+    - It may escalate to **manual review** that takes hours or days, so the flow has to survive dying between this step
+      and the next (see [Full resumability](#full-resumability)): its state is persisted, an independent driver resumes
+      it, and meanwhile the reservation simply stays in place.
+    - A **daily withdrawal limit** is enforced here, and it is nothing more than an invariant (see
+      [Invariants](#invariants)). Because it is a time-windowed, stateful invariant evaluated under concurrency, it has
+      the same atomicity problem as the reservation: two withdrawals racing past the limit must not both pass.
+    - Every decision - passed, blocked, who overrode it - lands in the audit trail (see
+      [Audits and audit trails](#audits-and-audit-trails)).
+4. **The transaction is broadcast on-chain.** Once cleared, you sign and broadcast through a node - another external
+   call
+   subject to all the same caveats. This step must be idempotent: a resume after a crash must *re-check the chain*, not
+   blindly broadcast a second time (see [Idempotency](#idempotency), point 7 on out-of-order retries). The real network
+   fee is not known upfront, which is exactly why you reserved an *estimate* - you will settle the actual amount and
+   release the remainder.
+5. **You wait for finality, then post to the ledger.** A single confirmation is not the end - a reorg can undo a send
+   you
+   declared "done" too early, so you wait for enough confirmations. Only then do you post the double-entry movements:
+   debit the user's account, credit the external on-chain account (the outside world gets an account too), and book the
+   network fee against an expense account and your service fee against a revenue account (
+   see [Double-entry bookkeeping](#double-entry-bookkeeping)).
+6. **A nightly job reconciles against the chain.** Independently of the flow above, a job compares the ledger with
+   on-chain reality and the node's view of your transactions (see [Reconciliation](#reconciliation)). It is the safety
+   net that catches a broadcast that never confirmed, or a fee that came out different from what you booked.
+
+**Where it gets interesting:** suppose the actual network fee comes in higher than the estimate you reserved. The
+settlement can push the account negative. You book the
+overdraft and recover it explicitly (see [Handling overdrafts](#handling-overdrafts)). And if the process crashes
+between broadcast (step 4) and confirmation (step 5), resumability plus idempotency are what let it pick up by querying
+the chain rather than sending the funds twice.
+
+### Flow 2: A card deposit
+
+A user tops up their account with a card payment through a payment service provider (PSP). Money is coming *in*, which
+shifts the hard part from "don't send twice" to "don't trust what the outside world tells you, and don't credit money
+that hasn't really arrived."
+
+1. **The user initiates the deposit.** They enter an amount and submit their card details, and you open a deposit
+   transaction with the PSP - again with an idempotency key, since the submit can be retried.
+2. **Authorization places a hold.** The PSP authorizes the card, placing a hold without yet capturing the money. This is
+   the card world's version of funds reservation (authorization vs capture). You do not credit the user's balance yet -
+   the money is not yours.
+3. **A webhook says "captured" - and you believe none of it.** The PSP calls your webhook endpoint (see
+   [Handling webhooks](#handling-webhooks)). You verify the signature over the *raw bytes*, persist the raw payload,
+   acknowledge fast with a 2xx, and only then process asynchronously. Crucially you treat the webhook as a *hint that
+   something happened*, not as truth: you query the PSP's API for the authoritative state, because webhooks arrive out
+   of
+   order, carry stale data, get duplicated and get lost. Processing is idempotent (see [Idempotency](#idempotency)) so a
+   re-delivered "captured" credits the user once.
+4. **The credit goes through a clearing account.** The money is in flight (float) - captured by the PSP but not yet
+   settled to your bank - so you post it through a suspense/clearing account rather than pretending it has arrived:
+   credit
+   the user's balance (a liability - their balance is an IOU from you to them) and debit a PSP receivable. The
+   interchange/processing fee is booked as an expense. Booking time is now; settlement time is later, T+X (see
+   [Value time vs booking time vs settlement time](#value-time-vs-booking-time-vs-settlement-time)).
+5. **Settlement arrives as a batch, and reconciliation is one-to-many.** Days later the PSP settles a single transfer to
+   your bank covering many deposits at once. You reconcile that batch against the clearing account (see
+   [Reconciliation](#reconciliation)), matching one settlement against many transactions. The T+X delay is baked into
+   the process so you do not alert on transactions that are simply not settled *yet* - and this same job is what catches
+   a webhook that never arrived at all.
+6. **Weeks later, a chargeback.** The cardholder disputes the payment and their bank forces a reversal. You do not edit
+   the original posting - you post a linked compensating entry (
+   see [Reversals and corrections](#reversals-and-corrections)),
+   which will usually land in a later reporting period than the deposit, and which may push the user's balance negative
+   if
+   they have already spent the funds (back to [Handling overdrafts](#handling-overdrafts)).
+
+**Where it gets interesting:** the whole flow is built on *not* believing the happy-path signal. The webhook is a
+trigger, not a fact; the clearing account refuses to recognize money until it has actually moved; reconciliation
+verifies the PSP against your own books rather than the other way around. Every step is an application of *no trust*.
+
+### Flow 3: An in-app conversion with cashback
+
+A user converts 1,000 EUR into USDC and earns a small promotional cashback on the trade. Money moves entirely *within*
+the system, so there is no unreliable external rail - instead this flow stresses the representation layer (precision,
+rounding, currencies, rates) and the sharpest form of the *no invented data* principle.
+
+1. **A directional quote, and a reservation.** You quote a rate for EUR→USDC. That rate is its own price, not the
+   inverse
+   of USDC→EUR - buying and selling sit on opposite sides of the bid/ask spread (see [FX Rates](#fx-rates)). You reserve
+   the 1,000 EUR (see [Funds reservation](#funds-reservation)), and the request carries an idempotency key like any
+   other.
+2. **The two sides never get added together.** EUR and USDC are distinct currencies - in fact USDC is identified by
+   `(network, contract address)`, not a bare code, and is not interchangeable with the fiat it is pegged to (see
+   [Currency handling](#currency-handling)). The system forbids cross-currency arithmetic; the only bridge between the
+   two amounts is an explicit conversion at the controlled rate.
+3. **Full precision through the math, rounding only at the edge.** You compute the conversion keeping full precision and
+   round exactly once, at the boundary, with a deliberately chosen strategy (
+   see [Precision handling](#precision-handling)
+   and [Rounding strategies](#rounding-strategies)). The spread you earn is *revenue* - it must be booked explicitly to
+   a
+   revenue account via double-entry, not allowed to disappear into a rounding residual (see
+   [Double-entry bookkeeping](#double-entry-bookkeeping)). You do not store the transactional rate as a separate field;
+   it
+   falls out of the two amounts. A separate reference rate is what you would use later to value the holding.
+4. **The cashback is the hardest test of "no invented data."** It is tempting to treat a bonus as a free balance bump,
+   but that would mint money from nothing. The cashback is real money: it must be *funded* - moved out of a company
+   promotional/expense account into the user's balance via a proper double-entry posting - and the percentage that
+   defines it needs the same explicit rounding decision as everything else (
+   see [Rounding strategies](#rounding-strategies)).
+5. **Settle, then notify reliably.** You settle the reservation, post all the movements with their timestamps and audit
+   trail, and publish the outcome so the rest of the system - statements, notifications, analytics - learns about it.
+   That
+   publish has to be reliable even though it spans a separate channel, which is what the outbox (or CDC, or the event
+   log)
+   is for (see [Notifying reliably (Outbox and CDC)](#notifying-reliably-outbox-and-cdc)); downstream consumers dedupe
+   on
+   a stable event id because delivery is at-least-once.
+
+**Where it gets interesting:** the cashback and the spread pull in opposite directions on the same posting. The spread
+is
+money the user *loses* to you (revenue); the cashback is money you *give* the user (an expense). Both are real, both go
+through the books, and both round - so the one transaction has to satisfy *no invented data* (the books still balance,
+nothing minted) and *no lost data* (every residual tracked) at the same time.
 
