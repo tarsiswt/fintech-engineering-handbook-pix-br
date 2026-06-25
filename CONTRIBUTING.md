@@ -35,6 +35,8 @@ quarto render    # build all formats into ./public
 | `_quarto.yml` | render config — formats, TOC, theme wiring |
 | `theme.scss` | visual theme (fonts, colours, layout) |
 | `_includes/enhance.html` | sidebar footer (download/listen/source/author links) + TOC scrollspy |
+| `_includes/head.html` | `<head>` extras — favicon link, theme colour |
+| `assets/` | brand artwork — `cover.{typ,png}` (1200×1800) and `favicon.{typ,png}` (512×512), compiled with `quarto typst compile` |
 
 
 ## Publishing

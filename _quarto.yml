@@ -3,6 +3,10 @@ project:
   output-dir: public
   render:
     - index.qmd
+  # Copy the favicon into the output dir (it's referenced from the <head> below;
+  # the format-level `favicon:` key only works for website projects, not this one).
+  resources:
+    - assets/favicon.png
 
 # Single source of truth: index.qmd. Every output below is generated from it.
 format:
@@ -11,6 +15,8 @@ format:
     theme:
       - cosmo
       - theme.scss
+    include-in-header:
+      - _includes/head.html
     toc: true
     toc-location: left
     toc-depth: 4

@@ -1,5 +1,6 @@
 // Audiobook / ebook cover — 1200x1800px (compile at --ppi 72: 1pt -> 1px).
-// quarto typst compile cover.typ cover.png --ppi 72
+// Run from repo root:
+// quarto typst compile assets/cover.typ assets/cover.png --ppi 72
 #set page(width: 1200pt, height: 1800pt, margin: 0pt, fill: rgb("#fbf9f4"))
 
 #let teal = rgb("#0b7c72")
