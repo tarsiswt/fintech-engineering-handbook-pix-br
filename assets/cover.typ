@@ -38,8 +38,6 @@
     #text(font: "Baskerville", size: 44pt, style: "italic", fill: muted)[Patterns for building software that handles money]
   ])
 
-// Author + source.
+// Author.
 #place(bottom + left, dx: 132pt, dy: -268pt,
   text(font: "Avenir Next", size: 40pt, tracking: 2pt, weight: "medium", fill: ink)[Voytek Pitula])
-#place(bottom + left, dx: 134pt, dy: -214pt,
-  text(font: "Menlo", size: 20pt, fill: teal)[github.com/Krever/fintech-engineering-handbook])

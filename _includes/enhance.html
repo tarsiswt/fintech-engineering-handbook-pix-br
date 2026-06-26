@@ -9,21 +9,20 @@
   var GITHUB_URL = 'https://github.com/Krever/fintech-engineering-handbook';
   var LINKEDIN_URL = 'https://www.linkedin.com/in/krever/';
   // ElevenReader share link — paste the real URL after publishing the audiobook.
-  var AUDIOBOOK_URL = ''; // e.g. 'https://elevenreader.io/...' ; empty = hidden
+  var AUDIOBOOK_URL = 'https://elevenreader.io/audiobooks/fintech-engineering-handbook/rPOltSogE64bCrbomHCu'; // e.g. 'https://elevenreader.io/...' ; empty = hidden
 
   function footerMarkup() {
     var listen = AUDIOBOOK_URL
-      ? '<nav class="listen-bar" aria-label="Listen to the audiobook">' +
-          '<a class="listen-btn" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
-            '<i class="bi bi-headphones"></i> Listen on ElevenReader</a>' +
-        '</nav>'
+      ? '<a class="download-pill download-pill--listen" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
+          '<i class="bi bi-headphones"></i> Audiobook</a>'
       : '';
-    return listen +
+    return '' +
       '<nav class="download-bar" aria-label="Download this handbook">' +
-        '<span class="download-bar__label">Download</span>' +
+        '<span class="download-bar__label">Take it with you</span>' +
         '<span class="download-pills">' +
           '<a class="download-pill" href="index.pdf"  download>PDF</a>' +
           '<a class="download-pill" href="index.epub" download>EPUB</a>' +
+          listen +
         '</span>' +
       '</nav>' +
       '<nav class="sidebar-links" aria-label="Source and author">' +
@@ -41,15 +40,15 @@
   // phone reader sees. Shown only on small screens via CSS.
   function grabCardMarkup() {
     var listen = AUDIOBOOK_URL
-      ? '<a class="grab-card__btn grab-card__btn--listen" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
-          '<i class="bi bi-headphones"></i> Listen</a>'
+      ? '<a class="grab-card__btn" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
+          '<i class="bi bi-headphones"></i> Audiobook</a>'
       : '';
     return '' +
       '<span class="grab-card__label">Take it with you</span>' +
       '<div class="grab-card__actions">' +
-        listen +
         '<a class="grab-card__btn" href="index.pdf"  download><i class="bi bi-file-earmark-arrow-down"></i> PDF</a>' +
         '<a class="grab-card__btn" href="index.epub" download><i class="bi bi-book"></i> EPUB</a>' +
+        listen +
       '</div>' +
       '<nav class="grab-card__links" aria-label="Source and author">' +
         '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener">' +
