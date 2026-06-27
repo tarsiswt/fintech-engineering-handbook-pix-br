@@ -259,7 +259,6 @@ nav[role="doc-toc"] .nav-link.active {
   .grab-card__links {
     display: flex;
     flex-wrap: wrap;
-    gap: 1.1rem;
     margin-top: 0.95rem;
     padding-top: 0.85rem;
     border-top: 1px solid rgba(11, 124, 114, 0.16);
@@ -273,6 +272,15 @@ nav[role="doc-toc"] .nav-link.active {
     text-decoration: none;
   }
   .grab-card__links .bi { font-size: 0.95rem; opacity: 0.8; }
+  .grab-card__author {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.82rem;
+    color: $ink-soft;
+  }
+  .grab-card__author a { display: inline-flex; align-items: center; color: inherit; }
+  .grab-card__author a:hover { color: $teal; }
 }
 .download-bar {
   padding-top: 1.1rem;
@@ -280,7 +288,6 @@ nav[role="doc-toc"] .nav-link.active {
 .sidebar-links {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
   margin-top: 1.1rem;
 }
 .sidebar-links a {
@@ -298,6 +305,51 @@ nav[role="doc-toc"] .nav-link.active {
 .sidebar-links .bi {
   font-size: 0.95rem;
   opacity: 0.85;
+}
+// Source + author: two stacked rows, each a left label with matched chips
+// trailing on the right, so both rows share the same orientation.
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  color: $ink-soft;
+}
+.sidebar-row + .sidebar-row { margin-top: 0.55rem; }
+// Equal-width labels so the trailing chips line up in a column across rows.
+.sidebar-row__label { flex: 0 0 auto; min-width: 8rem; }
+// Social chips: matched rounded-square badges (GitHub, LinkedIn, X). The chip
+// fill is currentColor so colour + hover ride on the anchor; glyph is paper.
+// NOTE: Quarto's sidebar rules stretch these anchors (display:flex + grow),
+// leaving dead space inside each link that reads as a huge gap. Force the
+// anchor to shrink to the chip.
+.author-socials {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+}
+// Quarto appends an external-link glyph after target=_blank links; suppress it
+// on the chips (it wraps below the icon as a stray box).
+.author-socials a::after { content: none !important; display: none !important; }
+.author-socials a {
+  display: inline-block !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-width: 0 !important;
+  line-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: $ink-soft;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+.author-socials a:hover {
+  color: $teal;
+  transform: translateY(-1px);
+}
+.author-socials a svg.social-ico {
+  display: block;
+  width: 22px !important;
+  height: 22px !important;
 }
 .download-bar__label {
   display: block;
