@@ -6,7 +6,8 @@
 //      (Quarto's built-in highlight does not track scroll for a left TOC).
 (function () {
   // External links shown in the sidebar footer. Edit these URLs as needed.
-  var GITHUB_URL = 'https://github.com/Krever/fintech-engineering-handbook';
+  var GITHUB_URL = 'https://github.com/tarsiswt/fintech-engineering-handbook-pix-br'; // fonte desta edição (fork traduzido)
+  var TARSIS_URL = 'https://github.com/tarsiswt';
   var LINKEDIN_URL = 'https://www.linkedin.com/in/krever/';
   var X_URL = 'https://x.com/Krever01';
   var HOME_URL = 'https://w.pitula.me';
@@ -33,31 +34,37 @@
 
   function footerMarkup() {
     var listen = AUDIOBOOK_URL
-      ? '<a class="download-pill download-pill--listen" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
-          '<i class="bi bi-headphones"></i> Audiobook</a>'
+      ? '<a class="download-pill download-pill--listen" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener" title="\u00c1udiolivro da edi\u00e7\u00e3o original, em ingl\u00eas \u2014 n\u00e3o faz parte desta edi\u00e7\u00e3o">' +
+          '<i class="bi bi-headphones"></i> Audiobook (orig. EN)</a>'
       : '';
     return '' +
-      '<nav class="download-bar" aria-label="Download this handbook">' +
-        '<span class="download-bar__label">Take it with you</span>' +
+      '<nav class="download-bar" aria-label="Baixar este manual">' +
+        '<span class="download-bar__label">Leve com você</span>' +
         '<span class="download-pills">' +
           '<a class="download-pill" href="index.pdf"  download>PDF</a>' +
           '<a class="download-pill" href="index.epub" download>EPUB</a>' +
           listen +
         '</span>' +
       '</nav>' +
-      '<nav class="sidebar-links" aria-label="Source and author">' +
+      '<nav class="sidebar-links" aria-label="Fonte e autoria">' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Source on GitHub</span>' +
+          '<span class="sidebar-row__label">Código desta edição</span>' +
           '<span class="author-socials">' +
-            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Source on GitHub">' + GH_SVG + '</a>' +
+            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Código desta edição no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Voytek Pitula</span>' +
+          '<span class="sidebar-row__label">Voytek Pitula · autor original</span>' +
           '<span class="author-socials">' +
-            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Homepage">' + HOME_SVG + '</a>' +
+            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Página inicial">' + HOME_SVG + '</a>' +
             '<a href="' + LINKEDIN_URL + '" target="_blank" rel="noopener" aria-label="LinkedIn">' + LI_SVG + '</a>' +
             '<a href="' + X_URL + '" target="_blank" rel="noopener" aria-label="X">' + X_SVG + '</a>' +
+          '</span>' +
+        '</span>' +
+        '<span class="sidebar-row">' +
+          '<span class="sidebar-row__label">Társis Toledo · tradução</span>' +
+          '<span class="author-socials">' +
+            '<a href="' + TARSIS_URL + '" target="_blank" rel="noopener" aria-label="Társis Toledo no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
       '</nav>';
@@ -70,29 +77,35 @@
   // phone reader sees. Shown only on small screens via CSS.
   function grabCardMarkup() {
     var listen = AUDIOBOOK_URL
-      ? '<a class="grab-card__btn" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
-          '<i class="bi bi-headphones"></i> Audiobook</a>'
+      ? '<a class="grab-card__btn" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener" title="\u00c1udiolivro da edi\u00e7\u00e3o original, em ingl\u00eas \u2014 n\u00e3o faz parte desta edi\u00e7\u00e3o">' +
+          '<i class="bi bi-headphones"></i> Audiobook (orig. EN)</a>'
       : '';
     return '' +
-      '<span class="grab-card__label">Take it with you</span>' +
+      '<span class="grab-card__label">Leve com você</span>' +
       '<div class="grab-card__actions">' +
         '<a class="grab-card__btn" href="index.pdf"  download><i class="bi bi-file-earmark-arrow-down"></i> PDF</a>' +
         '<a class="grab-card__btn" href="index.epub" download><i class="bi bi-book"></i> EPUB</a>' +
         listen +
       '</div>' +
-      '<nav class="grab-card__links" aria-label="Source and author">' +
+      '<nav class="grab-card__links" aria-label="Fonte e autoria">' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Source on GitHub</span>' +
+          '<span class="sidebar-row__label">Código desta edição</span>' +
           '<span class="author-socials">' +
-            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Source on GitHub">' + GH_SVG + '</a>' +
+            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Código desta edição no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Voytek Pitula</span>' +
+          '<span class="sidebar-row__label">Voytek Pitula · autor original</span>' +
           '<span class="author-socials">' +
-            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Homepage">' + HOME_SVG + '</a>' +
+            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Página inicial">' + HOME_SVG + '</a>' +
             '<a href="' + LINKEDIN_URL + '" target="_blank" rel="noopener" aria-label="LinkedIn">' + LI_SVG + '</a>' +
             '<a href="' + X_URL + '" target="_blank" rel="noopener" aria-label="X">' + X_SVG + '</a>' +
+          '</span>' +
+        '</span>' +
+        '<span class="sidebar-row">' +
+          '<span class="sidebar-row__label">Társis Toledo · tradução</span>' +
+          '<span class="author-socials">' +
+            '<a href="' + TARSIS_URL + '" target="_blank" rel="noopener" aria-label="Társis Toledo no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
       '</nav>';
@@ -112,7 +125,7 @@
     if (title && !document.querySelector('.grab-card')) {
       const card = document.createElement('aside');
       card.className = 'grab-card';
-      card.setAttribute('aria-label', 'Get this handbook');
+      card.setAttribute('aria-label', 'Leve este manual');
       card.innerHTML = grabCardMarkup();
       title.insertAdjacentElement('afterend', card);
     }
