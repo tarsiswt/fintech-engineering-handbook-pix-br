@@ -7,11 +7,6 @@ project:
   # the format-level `favicon:` key only works for website projects, not this one).
   resources:
     - assets/favicon.png
-    # Hidden one-pixel-free tracking pages loaded in an iframe on download
-    # clicks, so Cloudflare records PDF/EPUB downloads as pageviews. See
-    # _includes/enhance.html.
-    - dl/pdf.html
-    - dl/epub.html
 
 # Single source of truth: index.qmd. Every output below is generated from it.
 format:
@@ -26,7 +21,7 @@ format:
     toc-location: left
     toc-depth: 4
     toc-expand: true
-    toc-title: "Contents"
+    toc-title: "Sumário"
     smooth-scroll: true
     anchor-sections: true
     link-external-icon: true
@@ -47,7 +42,7 @@ format:
   typst:
     papersize: a4
     toc: true
-    toc-title: "Contents"
+    toc-title: "Sumário"
 
   epub:
     toc: true

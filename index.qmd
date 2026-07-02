@@ -1,1140 +1,1451 @@
 ---
-title: "Fintech Engineering Handbook"
-subtitle: "Patterns for building software that handles money"
-author: "Voytek Pitula"
+title: "Manual de Engenharia para Fintechs"
+subtitle: "Padrões para construir software que lida com dinheiro"
+author: "Voytek Pitula (autor original) · Társis Toledo (tradução e adaptação — edição em português com exemplos do Pix)"
 date-modified: last-modified
+lang: pt-BR
 ---
 
-Welcome to the Fintech Engineering Handbook. This resource aims to describe the most important patterns used in software
-engineering, where money is the primary focus of the system. It can be read in full to get a comprehensive understanding
-or in parts when dealing with a particular problem.
+::: {.callout-note}
+## Sobre esta edição
+Esta é uma tradução para o português brasileiro do *Fintech Engineering Handbook*, de Voytek Pitula,
+disponibilizado sob a licença [Creative Commons Atribuição 4.0 Internacional (CC BY 4.0)](LICENSE).
+A adaptação acrescenta exemplos do **Pix**, o sistema de pagamentos instantâneos do Banco Central do Brasil,
+para ilustrar os padrões no contexto brasileiro. Alterações foram feitas em relação ao original.
+Tradução e adaptação para o português por **Társis Toledo** (2026). Edição assistida por IA com revisão humana
+(ver [Apêndice C](#about)).
+:::
 
-### For whom?
+Bem-vindo(a) ao Manual de Engenharia para Fintechs. Este material descreve os padrões mais importantes da engenharia
+de software em sistemas onde o dinheiro é o foco principal. Pode ser lido por inteiro, para obter uma compreensão
+abrangente, ou em partes, ao lidar com um problema específico.
 
-- **People joining fintech.** To get familiar with the domain and the patterns that make money systems trustworthy.
-- **People already in fintech.** As a reference to reach for when facing a particular problem, and a shared vocabulary
-  to point colleagues at.
-- **People outside fintech.** To understand how building for money differs from what they're used to, and why.
+### Para quem?
 
-To learn more about the background of this book, see [Appendix C](#about).
+- **Quem está entrando em fintech.** Para se familiarizar com o domínio e com os padrões que tornam os sistemas de
+  dinheiro confiáveis.
+- **Quem já atua em fintech.** Como referência para consultar diante de um problema específico e como vocabulário
+  comum para apontar aos colegas.
+- **Quem está fora de fintech.** Para entender como construir para dinheiro difere do que se está acostumado, e por quê.
 
-## Principles
+Para saber mais sobre o contexto deste livro, veja o [Apêndice C](#about).
 
-Everything you will read below is a way to adhere to the three principles:
+## Princípios
 
-1. **No invented data.** Money can't be created out of nowhere, so we can't tolerate duplicates or arbitrary balance
-   updates. We enforce this with idempotency, deduplication, and reconciliation.
-2. **No lost data.** Everything that happens to money has to be tracked and persisted. We protect this with full
-   precision, at-least-once deliveries, event sourcing, audit trails, and immutability.
-3. **No trust.** Trust neither external providers, internal components, nor the world. We uphold this by verifying
-   webhooks, cross-checking data across sources, and failing loudly on broken assumptions.
+Tudo o que você vai ler abaixo é uma forma de aderir a três princípios:
 
-## Representing money
+1. **Nenhum dado inventado.** Dinheiro não pode ser criado do nada, então não podemos tolerar duplicidades nem
+   atualizações arbitrárias de saldo. Reforçamos isso com idempotência, deduplicação e conciliação.
+2. **Nenhum dado perdido.** Tudo o que acontece com o dinheiro precisa ser rastreado e persistido. Protegemos isso com
+   precisão total, entregas ao-menos-uma-vez, [event sourcing](https://martinfowler.com/eaaDev/EventSourcing.html), trilhas de auditoria e imutabilidade.
+3. **Nenhuma confiança.** Não confie em provedores externos, nem em componentes internos, nem no mundo. Sustentamos isso
+   verificando webhooks, cruzando dados entre fontes e falhando de forma barulhenta quando premissas são quebradas.
 
-Before you can move or record money, you have to represent it. These are the decisions about how a monetary value is
-modeled, stored, computed, and converted. Getting them wrong means every layer above inherits the error.
+## Representando dinheiro
 
-### Precision handling
+Antes de movimentar ou registrar dinheiro, você precisa representá-lo. Estas são as decisões sobre como um valor
+monetário é modelado, armazenado, computado e convertido. Errar aqui faz com que toda camada acima herde o erro.
 
-Money representation is one of the most fundamental decisions in financial systems. There are four primary ways to do
-it:
+### Tratamento de precisão {#precision-handling}
 
-1. **Floating-point.** Built-in float or double types. This can create unpredictable precision losses and is almost
-   never a good idea. But it's the fastest and most memory efficient, and requires no additional libraries or data
-   structures.
-2. **Arbitrary precision.** Types like Java's `BigDecimal` let you control the precision of a computation precisely. The
-   code is predictable and we get to decide where and how rounding happens. It fits intermediate work like FX or pricing
-   math, where many operations chain together.
-3. **Minor-units precision.** For most fiat currencies it's ok to keep only a fixed precision, the same that is used in
-   the connected central banking system. The number of digits is described by ISO 4217 (don't assume it's always 2, it's
-   not!). In practice this means storing the amount as an integer in its smallest unit - €12.34 becomes `1234`. Crypto
-   uses the same integer-smallest-unit idea (satoshis for BTC, wei for ETH), but with two twists: the precision is
-   per-asset and defined by the token itself (e.g. an ERC-20's `decimals`), often 18 digits, and the resulting
-   magnitudes overflow 64-bit integers, so you need arbitrary-width integers to hold them.
-4. **Rational numbers.** When no precision loss is acceptable. This is the most powerful approach but comes with its own
-   caveats. First, it's slower than the alternatives. Second, it cannot be converted to other formats without losing
-   precision. Third, it usually requires a custom datatype or a library.
+A representação do dinheiro é uma das decisões mais fundamentais em sistemas financeiros. Há quatro formas principais de
+fazê-la:
 
-Selecting one or the other depends on the class of the system and its responsibilities. There is no rule of thumb here,
-other than not using floating points. These representations are not mutually exclusive either - how you store an amount
-and how you compute with it are separate decisions, and a system often combines them, e.g. integer storage with
-`BigDecimal` for intermediate computation.
+1. **Ponto flutuante.** Tipos nativos `float` ou `double`. Isso pode gerar perdas de precisão imprevisíveis e quase
+   nunca é uma boa ideia. Mas é o mais rápido e o mais eficiente em memória, e não exige bibliotecas ou estruturas de
+   dados adicionais.
+2. **Precisão arbitrária.** Tipos como o [`BigDecimal`](https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/math/BigDecimal.html) do Java permitem controlar a precisão de uma computação com
+   exatidão. O código fica previsível e decidimos onde e como o arredondamento acontece. Serve para trabalho
+   intermediário, como câmbio ou cálculo de preços, onde muitas operações se encadeiam.
+3. **Precisão em unidades menores.** Para a maioria das moedas fiduciárias basta manter uma precisão fixa, a mesma usada
+   no sistema bancário central conectado. O número de casas é descrito pela [ISO 4217](https://pt.wikipedia.org/wiki/ISO_4217) (não presuma que é sempre 2, não
+   é!). Na prática, isso significa armazenar o valor como um inteiro em sua menor unidade — €12,34 vira `1234`. Cripto
+   usa a mesma ideia de inteiro-na-menor-unidade ([satoshis](https://en.bitcoin.it/wiki/Satoshi_%28unit%29) para BTC, [wei](https://ethereum.org/en/developers/docs/intro-to-ether/) para ETH), mas com duas peculiaridades: a
+   precisão é por ativo e definida pelo próprio token (por exemplo, o `decimals` de um [ERC-20](https://eips.ethereum.org/EIPS/eip-20)), muitas vezes 18 casas, e
+   as magnitudes resultantes estouram inteiros de 64 bits, então você precisa de inteiros de largura arbitrária para
+   armazená-las.
+4. **Números racionais.** Quando nenhuma perda de precisão é aceitável. É a abordagem mais poderosa, mas tem suas
+   ressalvas. Primeiro, é mais lenta que as alternativas. Segundo, não pode ser convertida para outros formatos sem
+   perder precisão. Terceiro, normalmente exige um tipo de dado próprio ou uma biblioteca.
 
-The same care applies when an amount is being serialized. A bare JSON number is an IEEE-754 double in most parsers, so
-serializing money as a number reintroduces the floating-point problem at the edge, no matter how carefully you represent
-it internally. Send money either as a string (`"12.34"`) or as an integer in its smallest unit.
+Escolher uma ou outra depende da classe do sistema e de suas responsabilidades. Não há regra de bolso aqui, exceto não
+usar ponto flutuante. Essas representações também não são mutuamente exclusivas — como você armazena um valor e como
+computa com ele são decisões separadas, e um sistema costuma combiná-las, por exemplo, armazenamento inteiro com
+`BigDecimal` para a computação intermediária.
 
-**Principles touched:**
+O mesmo cuidado vale ao serializar um valor. Um número JSON "cru" é um `double` [IEEE-754](https://en.wikipedia.org/wiki/IEEE_754) na maioria dos parsers, então
+serializar dinheiro como número reintroduz o problema do ponto flutuante na borda, por mais cuidadosa que seja sua
+representação interna. Envie dinheiro como string (`"12.34"`) ou como um inteiro na sua menor unidade.
 
-- **No lost data.** The wrong representation silently drops precision that can never be recovered.
+::: {.callout-tip}
+## No Pix
+As mensagens do Pix trafegam no padrão [ISO 20022](https://en.wikipedia.org/wiki/ISO_20022) (por exemplo, `pacs.008` para a ordem de pagamento) e representam o
+valor em reais como um decimal com exatamente **2 casas** (`<Amt Ccy="BRL">123.45</Amt>`) — repare que, no fio, isso já
+é uma **representação textual de precisão fixa**, não um ponto flutuante. Internamente, qualquer uma das representações
+descritas acima serve, contanto que as 2 casas sejam preservadas e o `float` fique de fora: armazenar em **centavos**
+(inteiro — R$ 123,45 vira `12345`) é uma escolha comum, mas guardar como **string ou decimal** (`"123.45"`,
+`BigDecimal`) é igualmente aceitável em muitas situações — e às vezes preferível, por exemplo, quando o valor apenas
+transita e é reserializado, ou quando você quer casar byte a byte com a mensagem recebida. O ponto não é qual delas usar,
+e sim escolher conscientemente e formatar para 2 casas só na borda (mensagem SPI, extrato, tela). A moeda é sempre BRL
+(986 na ISO 4217), com 2 dígitos — mas trate isso como configuração da moeda, não como constante espalhada pelo código.
+:::
 
-### Rounding strategies
+**Princípios envolvidos:**
 
-1. **Rounding is inevitable.** It should be done explicitly: any division, currency conversion, fee, interest, or rate
-   application, or move between precisions might require rounding.
-2. **It's a business decision.** Different rounding strategies have different implications. Sometimes you have to be
-   conservative (e.g. not to spend what you don't have) and round down; sometimes you care about statistical effects and
-   use half-even. Deciding who gets the fraction might have legal/tax implications.
-3. **Round as seldom as possible.** The longer you keep full precision, the more options you have to make the right
-   decision in the right context. Rounding should usually happen on boundaries, e.g. before numbers are persisted or
-   shown to the user.
-4. **Rounding breaks sums.** If a number is split into parts and rounding is applied, the sum of the parts might no
-   longer equal the original number. Depending on the context, this might require explicit handling - e.g. an explicit
-   rounding account.
+- **Nenhum dado perdido.** A representação errada descarta silenciosamente uma precisão que jamais pode ser recuperada.
 
-**Principles touched:**
+### Estratégias de arredondamento {#rounding-strategies}
 
-- **No lost data.** Residuals must be tracked, not dropped.
-- **No invented data.** Rounding must never mint money that wasn't there.
+1. **Arredondar é inevitável.** Deve ser feito explicitamente: qualquer divisão, conversão de moeda, tarifa, juros,
+   aplicação de taxa ou mudança entre precisões pode exigir arredondamento.
+2. **É uma decisão de negócio.** Estratégias diferentes têm implicações diferentes. Às vezes você precisa ser
+   conservador (por exemplo, para não gastar o que não tem) e arredondar para baixo; às vezes você se importa com
+   efeitos estatísticos e usa [half-even](https://en.wikipedia.org/wiki/Rounding#Round_half_to_even) (arredondamento bancário). Decidir quem fica com a fração pode ter implicações
+   legais ou fiscais.
+3. **Arredonde o mais tarde possível.** Quanto mais tempo você mantém a precisão total, mais opções tem para tomar a
+   decisão certa no contexto certo. O arredondamento normalmente deve acontecer nas fronteiras, por exemplo, antes de
+   persistir os números ou de exibi-los ao usuário.
+4. **Arredondamento quebra somas.** Se um número é dividido em partes e o arredondamento é aplicado, a soma das partes
+   pode deixar de igualar o número original. Dependendo do contexto, isso exige tratamento explícito — por exemplo, uma
+   conta de arredondamento dedicada.
 
-### Currency handling
+**Princípios envolvidos:**
 
-Money can't be represented as a number alone - it comes paired with a currency. There are a few nuances when it comes
-to handling currencies.
+- **Nenhum dado perdido.** Resíduos devem ser rastreados, não descartados.
+- **Nenhum dado inventado.** O arredondamento nunca deve cunhar dinheiro que não existia.
 
-1. **Pack amount and currency together.** A `Money` newtype (struct, class, record, etc.) minimizes the chance of errors.
-2. **No cross-currency arithmetic.** Your system should prohibit adding two amounts in different currencies. Conversion
-   should happen very explicitly with a strictly controlled rate.
-3. **Use a controlled currency set.** A custom config entry, JDK database, dedicated service. Never accept arbitrary
-   currency codes; validate at the boundaries of the system.
-4. **Codes identify fiat only.** Currency codes are unique and usable as identifiers only for fiat. For crypto
-   currencies you will have to use a more complicated approach like `(network, contract address)` or similar.
-5. **Currencies carry metadata.** Symbol, precision, name, etc. You will usually need those details for display purposes
-   but rarely for business logic.
-6. **Pegged is not the underlying.** Pegged, bridged, and wrapped crypto currencies are not equivalent to the underlying
-   ones.
+### Tratamento de moedas {#currency-handling}
 
-**Principles touched:**
+Dinheiro não pode ser representado apenas como um número — ele vem acompanhado de uma moeda. Há algumas sutilezas no
+tratamento de moedas.
 
-- **No trust.** Validate currency against the controlled set at the boundary.
-- **No invented data.** Treating distinct currencies/assets as interchangeable conjures value.
+1. **Empacote valor e moeda juntos.** Um *newtype* `Money` (struct, classe, record, etc.) minimiza a chance de erros.
+2. **Nada de aritmética entre moedas.** Seu sistema deve proibir somar dois valores em moedas diferentes. A conversão
+   deve acontecer de forma bem explícita, com uma taxa rigorosamente controlada.
+3. **Use um conjunto controlado de moedas.** Uma entrada de configuração própria, uma base de dados do JDK, um serviço
+   dedicado. Nunca aceite códigos de moeda arbitrários; valide nas fronteiras do sistema.
+4. **Códigos identificam apenas moeda fiduciária.** Códigos de moeda são únicos e utilizáveis como identificadores
+   apenas para fiat. Para criptomoedas, será preciso uma abordagem mais complexa, como `(rede, endereço de contrato)` ou
+   similar.
+5. **Moedas carregam metadados.** Símbolo, precisão, nome, etc. Você costuma precisar desses detalhes para exibição, mas
+   raramente para a lógica de negócio.
+6. **O atrelado não é o subjacente.** Criptomoedas atreladas (*pegged*), com ponte (*bridged*) ou encapsuladas
+   (*wrapped*) não são equivalentes às subjacentes.
 
-### FX Rates
+::: {.callout-tip}
+## No Pix
+O Pix opera em uma única moeda, o real (BRL), por definição — todo o arranjo é doméstico. Isso não significa que você
+deva embutir "BRL" no código: mesmo em um sistema exclusivamente Pix, modele o valor como `Money(valor, moeda)`. Isso
+mantém o razão auditável, evita aritmética acidental entre moedas se o sistema também operar câmbio ou cripto, e prepara
+o terreno para iniciativas transfronteiriças (o "Pix Internacional" em estudo pelo BCB), que reintroduzem câmbio e as
+preocupações da próxima seção.
+:::
 
-FX (Forex, foreign exchange currency market) rates allow us to convert money between currencies.
+**Princípios envolvidos:**
 
-1. **A rate is always directional.** The EUR/USD rate is not the same thing as the inverted USD/EUR rate. On an
-   exchange, buying and selling are two different orders at different prices (the bid/ask spread), so the two directions
-   don't simply invert.
-2. **The time of the rate is critical.** While you can technically use a rate from any point in time, the most commonly
-   used are:
-    - **Current-time rate.** Used to calculate current holdings or the value of a transaction as if it happened right
-      now.
-    - **Value-date rate.** Used to calculate change in value or a tax amount.
-3. **Two kinds of rate matter for conversion:**
-    1. **Transactional rate.** The rate a real conversion happened at. You don't store it directly - it falls out of
-       the original and result amounts.
-    2. **Reference rate** (mid-market or central bank). One used for valuation and equivalence (what holdings are worth
-       right now, or a tax base at the value date) and not a price anyone actually trades at.
-4. **There is no canonical rate.** Rates come from markets and vary between venues or calculation methods. The closest
-   to canonical are central bank rates, which can be used only as a reference rate, and even there we can have
-   alternative sources which are just as valid.
+- **Nenhuma confiança.** Valide a moeda contra o conjunto controlado na fronteira.
+- **Nenhum dado inventado.** Tratar moedas/ativos distintos como intercambiáveis conjura valor.
 
-**Principles touched:**
+### Taxas de câmbio (FX) {#fx-rates}
 
-- **No lost data.** Keep the amounts (and, for reference rates, a way back to the source).
-- **No trust.** There's no canonical rate, so the source should be part of the data.
+Taxas de câmbio (FX, *foreign exchange* — o mercado de moedas) permitem converter dinheiro entre moedas.
 
-## Recording money: the ledger
+1. **Uma taxa é sempre direcional.** A taxa EUR/USD não é a mesma coisa que a inversa USD/EUR. Em uma corretora, comprar
+   e vender são duas ordens diferentes a preços diferentes (o spread de compra/venda), então as duas direções não se
+   invertem simplesmente.
+2. **O momento da taxa é crítico.** Embora tecnicamente você possa usar uma taxa de qualquer ponto no tempo, as mais
+   comuns são:
+    - **Taxa do momento atual.** Usada para calcular posições atuais ou o valor de uma transação como se acontecesse
+      agora.
+    - **Taxa da data de valor.** Usada para calcular variação de valor ou um montante de imposto.
+3. **Dois tipos de taxa importam na conversão:**
+    1. **Taxa transacional.** A taxa a que uma conversão real aconteceu. Você não a armazena diretamente — ela decorre
+       do valor original e do valor resultante.
+    2. **Taxa de referência** (mid-market ou de banco central). Usada para valoração e equivalência (quanto as posições
+       valem agora, ou uma base de cálculo de imposto na data de valor) e não um preço a que alguém de fato negocia.
+4. **Não existe taxa canônica.** Taxas vêm dos mercados e variam entre praças ou métodos de cálculo. O mais próximo do
+   canônico são as taxas de banco central, que só podem ser usadas como taxa de referência, e mesmo ali podemos ter
+   fontes alternativas igualmente válidas.
 
-Once represented, money movements have to be recorded in a way that balances, survives audit, and can be reconstructed
-years later. This is where the books, their timestamps, and their history live.
+**Princípios envolvidos:**
 
-### Double-entry bookkeeping
+- **Nenhum dado perdido.** Guarde os valores (e, para taxas de referência, um caminho de volta à fonte).
+- **Nenhuma confiança.** Não há taxa canônica, então a fonte deve fazer parte do dado.
 
-Double-entry bookkeeping is a widely used way to store financial transactions as a list of entries in the form of
-`(credit account, debit account, amount)` (this is a compact form; the classic representation uses a separate debit
-and credit row per movement). Because every entry moves the same amount out of one account and into another, the books
-always balance - money is only moved, never created or destroyed.
+## Registrando dinheiro: o livro-razão
 
-- **Money always has a source and a destination.** External providers get dedicated accounts too, so money
-  entering/leaving the system is still tracked.
-- **Balance is never stored.** It's derived from the movements of money.
-- **Accounts have a type.** Assets, liabilities, or equity, so the **accounting equation**
-  (`assets = liabilities + equity`) holds and each account has a defined side on which it increases. In practice you
-  also need income (revenue) and expense accounts - e.g. to book a fee as revenue or a write-off as a loss
-  (`assets = liabilities + equity + revenue - expenses`).
-- **One transaction, many movements.** A single transaction will usually create multiple movements, e.g. one for the
-  net amount, another for the fees.
-- **Posted entries are immutable.** By convention, corrections are made by adding new compensating entries that offset
-  the original.
+Uma vez representadas, as movimentações de dinheiro precisam ser registradas de um jeito que feche, sobreviva a
+auditoria e possa ser reconstruído anos depois. É aqui que vivem os livros, seus carimbos de tempo e sua história.
 
-**Principles touched:**
+### Partidas dobradas {#double-entry-bookkeeping}
 
-- **No invented data.** Money only ever moves between accounts; the total is conserved.
+As [partidas dobradas](https://pt.wikipedia.org/wiki/M%C3%A9todo_das_partidas_dobradas) (*double-entry bookkeeping*) são uma forma amplamente usada de armazenar transações financeiras
+como uma lista de lançamentos no formato `(conta creditada, conta debitada, valor)` (esta é uma forma compacta; a
+representação clássica usa uma linha separada de débito e de crédito por movimento). Como todo lançamento move o mesmo
+valor para fora de uma conta e para dentro de outra, os livros sempre fecham — o dinheiro só é movido, nunca criado ou
+destruído.
 
-### Value time vs booking time vs settlement time
+- **Dinheiro sempre tem origem e destino.** Provedores externos também ganham contas dedicadas, então o dinheiro que
+  entra/sai do sistema continua rastreado.
+- **Saldo nunca é armazenado.** Ele é derivado das movimentações de dinheiro.
+- **Contas têm um tipo.** Ativo, passivo ou patrimônio líquido, para que a **[equação contábil](https://en.wikipedia.org/wiki/Accounting_equation)**
+  (`ativo = passivo + patrimônio líquido`) se sustente e cada conta tenha um lado definido em que aumenta. Na prática
+  você também precisa de contas de receita e de despesa — por exemplo, para lançar uma tarifa como receita ou uma baixa
+  como prejuízo (`ativo = passivo + patrimônio líquido + receitas - despesas`).
+- **Uma transação, muitos movimentos.** Uma única transação normalmente cria vários movimentos, por exemplo, um para o
+  valor líquido e outro para as tarifas.
+- **Lançamentos efetivados são imutáveis.** Por convenção, correções são feitas adicionando novos lançamentos
+  compensatórios que anulam o original.
 
-Transactions will usually have at least two, sometimes three timestamps associated:
+::: {.callout-tip}
+## No Pix
+Considere um Pix de **R$ 100,00** de Ana (banco A) para Bruno (banco B). No razão do **banco A**, o lançamento debita a
+conta de Ana e credita a conta que representa os recursos do banco na sua Conta PI (Conta de Pagamentos Instantâneos)
+mantida no BCB:
 
-1. **Value time.** When the transaction occurred.
-2. **Booking time.** When the transaction was recorded in the system.
-3. **Settlement time.** When money was actually transferred or materialized. Not every transaction has one. Usually
-   expressed as T+X, where X is the number of days after value at which settlement happens (e.g. T+2 means 2 days after
-   value).
+| Conta debitada          | Conta creditada             | Valor      |
+|-------------------------|-----------------------------|------------|
+| Cliente: Ana (passivo)  | Liquidação SPI / Conta PI   | R$ 100,00  |
 
-The first two will almost always diverge:
+No **banco B**, o espelho: debita-se a Conta PI e credita-se a conta de Bruno. A soma continua fechando em cada
+instituição, e a liquidação de fato entre os dois bancos acontece em **moeda de banco central**, no SPI. Se houver
+tarifa (o Pix é gratuito para pessoas físicas nas transferências e compras, com exceções como Pix Saque e Pix Troco; a
+pessoa jurídica pode ser tarifada), ela é um **movimento adicional** na mesma transação, creditando uma conta de receita
+— nunca uma alteração do valor principal.
+:::
 
-- **Backdated** (booking > value). Technically almost all transactions are backdated, but the term is most impactful
-  when booking and value time fall under different reporting periods, e.g. days, months, years.
-- **Forward-dated** (booking < value). Less frequent, but happens e.g. with scheduled or future-dated payments - a
-  standing order recorded today but effective next week.
+**Princípios envolvidos:**
 
-Example: a card payment happened at T1 (value time), you recorded it at T2 (booking time), but the payment provider
-transferred money to your account at T3 (settlement time).
+- **Nenhum dado inventado.** O dinheiro só se move entre contas; o total é conservado.
 
-Business and business-consumed reports usually care about value or settlement time, while booking time is useful for
-traceability.
+### Data de valor vs. data de lançamento vs. data de liquidação {#value-time-vs-booking-time-vs-settlement-time}
 
-**Principles touched:**
+As transações normalmente têm ao menos dois, às vezes três, carimbos de tempo associados:
 
-- **No lost data.** Record every relevant timestamp; collapsing them into a single `created_at` loses information you
-  can't reconstruct later.
+1. **Data de valor.** Quando a transação ocorreu.
+2. **Data de lançamento (contabilização).** Quando a transação foi registrada no sistema.
+3. **Data de liquidação.** Quando o dinheiro foi de fato transferido ou se materializou. Nem toda transação tem uma.
+   Normalmente expressa como T+X, onde X é o número de dias após a data de valor em que a liquidação acontece (por
+   exemplo, T+2 significa 2 dias após a data de valor).
 
-### Audits and audit trails
+Os dois primeiros quase sempre divergem:
 
-Financial systems are subject to regulatory scrutiny in the form of various audits. Some of the things that might be
-verified during an audit:
+- **Retroativa** (lançamento > valor). Tecnicamente quase toda transação é retroativa, mas o termo é mais relevante
+  quando data de lançamento e data de valor caem em períodos de apuração diferentes, como dias, meses ou anos.
+- **Pós-datada** (lançamento < valor). Menos frequente, mas acontece, por exemplo, com pagamentos agendados ou de data
+  futura — uma ordem permanente registrada hoje, mas efetiva na semana que vem.
 
-- are company funds not commingled with user funds or used for company expenses?
-- are all revenues registered, reported, and explainable? E.g. can you pinpoint the transactions that contributed to a
-  particular revenue stream in a particular period?
-- is the information provided to the external world (e.g. users or the tax office) matching reality? E.g. does the
-  company hold as much in assets as it owes its users?
-- are the funds protected against external threats? (e.g. who can access the funds and how)
+Exemplo: um pagamento com cartão aconteceu em T1 (data de valor), você o registrou em T2 (data de lançamento), mas o
+provedor de pagamento transferiu o dinheiro para a sua conta em T3 (data de liquidação).
 
-To answer those and many other questions, financial systems have to keep track of not only the current state but the
-full history of how that state came to be. This history is the **audit trail**: a record of everything that happened,
-detailed enough that any balance, report, or decision can be explained and reproduced from it.
+Relatórios de negócio e consumidos pelo negócio normalmente se importam com a data de valor ou de liquidação, enquanto a
+data de lançamento é útil para rastreabilidade.
 
-A useful audit trail captures, for every change:
+::: {.callout-tip}
+## No Pix
+O Pix comprime esses três tempos para quase o mesmo instante: a liquidação no SPI é **bruta, em tempo real** e acontece
+em **segundos** — na prática, **T+0**. Ainda assim, os carimbos permanecem distintos e vale registrá-los: o instante em
+que o pagador confirmou (data de valor), o instante em que sua ordem foi registrada no seu sistema (data de lançamento)
+e o instante da liquidação efetiva no SPI, marcado pelo BCB. Contraste com o cartão, que costuma ser T+1/T+2. E o **Pix
+Agendado** é o caso pós-datado por excelência: a ordem é registrada hoje (lançamento), mas só é enviada para liquidação
+na data agendada (valor/liquidação futura) — se, na data, faltarem recursos, o PSP deve tratar a falha explicitamente,
+não silenciosamente.
+:::
 
-- **What** happened.
-- **When** it happened (see value time vs booking time).
-- **Who or what** triggered it - a user, an operator, an automated job.
-- **Why** it happened - a reference to the order, instruction, or incident that caused it.
+**Princípios envolvidos:**
 
-Money movements are the obvious subject, but manual interventions, configuration changes (fee schedules, rate sources,
-limits), and permission changes need trails too.
+- **Nenhum dado perdido.** Registre todo carimbo de tempo relevante; colapsá-los em um único `created_at` perde
+  informação que você não consegue reconstruir depois.
 
-The **why** is often itself the output of a decision (e.g. a compliance check or risk score). Recording just the outcome
-("blocked") rarely satisfies an audit because you'll be asked how that outcome was reached. If that logic lives in a
-decision
-table or a rules engine (DMN, Drools, Decisions4s) instead of being buried in imperative code, the decision becomes a
-structured, replayable artifact that says which rules fired, on which inputs, with what result.
+### Auditorias e trilhas de auditoria {#audits-and-audit-trails}
 
-**Principles touched:**
+Sistemas financeiros estão sujeitos a escrutínio regulatório na forma de diversas auditorias. Algumas coisas que podem
+ser verificadas durante uma auditoria:
 
-- **No lost data.** Current state alone can't answer an audit's questions; only the full history can.
+- os recursos da empresa não estão misturados com os recursos dos usuários nem usados para despesas da empresa?
+- todas as receitas estão registradas, reportadas e explicáveis? Por exemplo, você consegue apontar as transações que
+  contribuíram para determinada fonte de receita em determinado período?
+- a informação fornecida ao mundo externo (por exemplo, usuários ou o fisco) corresponde à realidade? Por exemplo, a
+  empresa detém em ativos tanto quanto deve aos seus usuários?
+- os recursos estão protegidos contra ameaças externas? (por exemplo, quem pode acessar os recursos e como)
+
+Para responder a essas e muitas outras perguntas, os sistemas financeiros precisam rastrear não só o estado atual, mas
+toda a história de como esse estado veio a existir. Essa história é a **trilha de auditoria**: um registro de tudo o que
+aconteceu, detalhado o suficiente para que qualquer saldo, relatório ou decisão possa ser explicado e reproduzido a
+partir dela.
+
+Uma trilha de auditoria útil captura, para cada mudança:
+
+- **O que** aconteceu.
+- **Quando** aconteceu (ver data de valor vs. data de lançamento).
+- **Quem ou o quê** a disparou — um usuário, um operador, uma rotina automatizada.
+- **Por que** aconteceu — uma referência à ordem, instrução ou incidente que a causou.
+
+Movimentações de dinheiro são o objeto óbvio, mas intervenções manuais, mudanças de configuração (tabelas de tarifas,
+fontes de taxa, limites) e mudanças de permissão também precisam de trilhas.
+
+O **porquê** muitas vezes é ele próprio o resultado de uma decisão (por exemplo, uma verificação de compliance ou um
+score de risco). Registrar só o desfecho ("bloqueado") raramente satisfaz uma auditoria, porque vão te perguntar como
+esse desfecho foi alcançado. Se essa lógica vive em uma tabela de decisão ou motor de regras ([DMN](https://www.omg.org/dmn/), [Drools](https://www.drools.org/), [Decisions4s](https://github.com/business4s/decisions4s))
+em vez de estar enterrada em código imperativo, a decisão vira um artefato estruturado e reexecutável que diz quais
+regras dispararam, sobre quais entradas, com que resultado.
+
+**Princípios envolvidos:**
+
+- **Nenhum dado perdido.** O estado atual sozinho não responde às perguntas de uma auditoria; só a história completa
+  responde.
 
 #### Event sourcing
 
-Event sourcing is probably the most principled and systemic approach to building an audit trail. In ES, instead of
-storing current state with a log next to it, you store only the events and derive state from them. The double-entry
-ledger is an example of this pattern applied to money - balance is never stored, it is calculated from the stored
-entries. With this approach the trail is a primary artifact and cannot drift away from reality.
+Event sourcing é provavelmente a abordagem mais principista e sistêmica para construir uma trilha de auditoria. No ES,
+em vez de armazenar o estado atual com um log ao lado, você armazena apenas os eventos e deriva o estado a partir deles.
+O razão de partidas dobradas é um exemplo desse padrão aplicado ao dinheiro — o saldo nunca é armazenado, é calculado a
+partir dos lançamentos gravados. Com essa abordagem, a trilha é um artefato primário e não pode divergir da realidade.
+
+Algumas notas práticas:
+
+1. **Você não precisa dele em todo lugar.** O razão já cobre o dinheiro; para os domínios ao redor, um modelo
+   convencional com um log de mudanças confiável pode bastar.
+2. **O estado derivado pode ser cacheado.** Saldos e projeções podem ser cacheados ou fotografados (*snapshots*) por
+   desempenho.
+3. **Projeções dão trabalho.** Você pode precisar de muitas, e não consegue consultar efetivamente seu conjunto de
+   dados primário (os eventos) para nada, então precisa construir projeções dedicadas ou genéricas para olhar seus
+   dados.
+4. **Planeje a evolução de esquema.** Eventos vivem por anos, então o código de hoje precisa continuar lendo eventos
+   escritos há muito tempo.
+
+Em outras palavras: event sourcing é uma ótima solução quando uma trilha de auditoria é exigida, mas cobra um preço
+altíssimo em complexidade de sistema.
+
+**Princípios envolvidos:**
+
+- **Nenhum dado perdido.** Quando o estado é derivado dos eventos, a trilha não pode ficar dessincronizada da realidade
+  porque ela *é* a fonte da verdade.
+
+#### Imutabilidade
+
+Uma trilha de auditoria que pode ser editada não prova nada, portanto registros nunca podem ser atualizados ou apagados.
+Nosso log precisa ser *append-only* (apenas de acréscimo), e toda correção deve ser um novo registro (ver abaixo).
+
+Imutabilidade é uma invariante, e vale a caixa de ferramentas de sempre:
+
+1. **Por construção.** Tabelas *append-only*, revogando `UPDATE`/`DELETE` no nível de permissão do banco de dados.
+2. **Verificações em runtime.** A camada de aplicação não expõe nenhuma operação de mutação sobre registros efetivados.
+3. **Pós-fato.** Evidência de adulteração: checksums ou cadeias de hash sobre os registros, verificadas periodicamente,
+   para que qualquer modificação posterior seja detectável.
+
+Ao construir um sistema real, bugs são inevitáveis e podem exigir corrigir o log de eventos/trilha de auditoria. Nesses
+casos, às vezes é mais fácil atualizar a trilha no lugar em vez de mantê-la estritamente imutável. Para equilibrar esses
+dois mundos é importante entender seu calendário e suas obrigações de reporte — normalmente o dado só precisa virar
+pedra depois de reportado, por exemplo, quando a demonstração financeira foi compartilhada no fim do mês. Até lá, você
+ainda pode conseguir modificar seu dado no lugar, se detectar e corrigir o problema antes que ele saia do seu sistema.
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** Uma história editável não prova nada; imutabilidade e evidência de adulteração tornam a trilha
+  confiável para um observador externo, inclusive você mesmo investigando um incidente.
+
+#### Estornos e correções {#reversals-and-corrections}
+
+Erros ainda acontecem — por exemplo, um valor errado é lançado ou uma transação cai na conta errada. Imutabilidade
+significa corrigir para frente: lançar um novo lançamento compensatório e vinculá-lo ao registro que corrige, nos dois
+sentidos.
+
+1. **Estorno.** Anula o original por completo, como se ele nunca tivesse acontecido economicamente — mas permanece
+   visível na história, junto com o original.
+2. **Correção (ajuste).** Lança a diferença entre o que foi registrado e o que deveria ter sido, ou estorna e relança
+   com os valores certos.
+3. **Atenção ao período de apuração.** Correções muitas vezes caem em um período diferente do original (ver data de
+   valor vs. data de lançamento); é o vínculo que permite aos relatórios atribuí-las corretamente e distinguir
+   atividade real de faxina.
+
+O último ponto é particularmente importante — ao lançar correções/estornos você terá de decidir se retroage o evento
+(especifica uma data de valor no passado) ou não. Aqui muito depende, de novo, do calendário de reporte — normalmente
+você não terá permissão para retroagir nada a um período já fechado, porque ele já foi reportado ao mundo externo.
+
+::: {.callout-tip}
+## No Pix
+No Pix, o estorno tem forma própria: a **Devolução**. Ela é uma nova ordem, no sentido inverso, que **referencia o
+`EndToEndId` (E2EID)** do Pix original e carrega seu próprio identificador de devolução (`ReturnId`) — exatamente o
+lançamento compensatório *vinculado* descrito acima, nunca uma edição do registro original. Pode ser **total ou
+parcial** e tem motivos padronizados (erro operacional, solicitação do usuário ou fraude).
+
+Para os casos de fraude existe o **MED — Mecanismo Especial de Devolução**, definido pelo BCB: quando o recebedor
+identifica (ou é notificado de) recursos oriundos de fraude, o PSP pode marcar no DICT o CPF/CNPJ envolvido (marcação de
+fraude transacional), abrir uma solicitação de devolução e — para reaver recursos que já foram para um cliente de outro
+PSP — uma **Recuperação de Valores**, devolvendo os valores ainda disponíveis dentro dos prazos e regras do arranjo. Do ponto
+de vista do razão, tudo isso continua sendo **novos lançamentos vinculados ao E2EID original** — a história do Pix
+fraudulento permanece intacta e a devolução aparece ao lado dela, atendendo aos três princípios.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhum dado inventado.** Erros são corrigidos lançando lançamentos compensatórios vinculados que anulam o registro
+  original.
+
+#### Imutabilidade vs. LGPD
+
+O direito ao apagamento — presente tanto na [LGPD](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm) (Lei Geral de Proteção de Dados, no Brasil) quanto no [GDPR](https://gdpr-info.eu/) europeu —
+parece contradizer um razão imutável. Na prática, é bem fácil transformá-lo em não-problema:
+
+1. **Registros financeiros são, em grande parte, exceção.** Obrigações legais de retenção (lei contábil, prevenção à
+   lavagem de dinheiro, tipicamente 5–10 anos) têm precedência sobre pedidos de apagamento de dados transacionais. Você
+   não apaga lançamentos nesse período.
+2. **Separe os dados pessoais dos dados financeiros.** A exceção cobre o que você é *obrigado* a manter, não tudo o que
+   gostaria de manter. O razão imutável referencia usuários apenas por identificadores internos opacos, enquanto os
+   dados pessoais (nomes, endereços, documentos) vivem em um repositório separado e mutável, que pode ser redigido ou
+   apagado de forma independente.
+3. **Crypto-shredding para dados pessoais embutidos.** Onde dados pessoais precisam ficar embutidos em registros
+   imutáveis (por exemplo, no payload de eventos), cifre os campos pessoais de cada usuário com uma chave por usuário e
+   apague deletando a chave. O apagamento vira uma exclusão de chave, não uma reescrita da história.
+
+::: {.callout-tip}
+## No Pix
+O caso mais visível de dado pessoal no Pix é a **chave Pix** no DICT: CPF/CNPJ, e-mail, telefone ou chave aleatória
+(EVP) vinculados a uma conta. Isso é dado pessoal sob a LGPD e, ao mesmo tempo, o E2EID e os lançamentos de liquidação
+precisam ser retidos para fins regulatórios e de auditoria pelos prazos do BCB. A separação acima resolve o aparente
+conflito: mantenha o **razão referenciando contas por identificadores internos**, guarde a associação com a chave Pix e
+demais dados pessoais em um repositório apartado e passível de redação, e trate o descadastramento da chave no DICT como
+exclusão desse dado — sem tocar na trilha financeira que você é obrigado a preservar.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhum dado perdido.** Separar dados pessoais dos dados financeiros permite honrar o apagamento sem perder a
+  história financeira que você é obrigado a manter.
 
-A few practical notes:
+## Executando fluxos de dinheiro
+
+Uma operação de dinheiro raramente é uma única escrita. Ela se estende por passos, concorrência e falhas, e tem de
+permanecer correta — nunca inventando nem perdendo dinheiro — ao longo de tudo isso. Estes são os padrões que mantêm um
+único fluxo correto, das invariantes que ele deve preservar até sobreviver a uma queda no meio do caminho.
 
-1. **You don't need it everywhere.** The ledger already covers money; for surrounding domains a conventional model with
-   a reliable change log may be enough.
-2. **Derived state can be cached.** Balances and projections can be cached or snapshotted for performance.
-3. **Projections are work intensive.** You might need a lot of them, and you cannot effectively query your primary data
-   set (events) for anything, so you need to build dedicated or generic projections to look into your data.
-4. **Plan for schema evolution.** Events live for years, so today's code must still read events written long ago.
+### Invariantes {#invariants}
 
-In other words: event sourcing is a very good solution when an audit trail is required, but it comes with a very high
-price in terms of system complexity.
+Em qualquer sistema existem propriedades especiais que sempre devem valer — chamamo-las de invariantes. Uma delas é a
+equação contábil mencionada acima. As áreas de negócio podem definir muitas dessas condições, que então precisam ser
+garantidas.
 
-**Principles touched:**
+Há 3 formas principais de garantir invariantes:
 
-- **No lost data.** When state is derived from events, the trail can't drift out of sync with reality because it *is*
-  the source of truth.
-
-#### Immutability
-
-An audit trail that can be edited proves nothing, hence records can never be updated or deleted. Our log must be
-append-only, and every correction should be a new record (see below).
-
-Immutability is an invariant, and the usual toolbox applies:
-
-1. **By construction.** Append-only tables, revoking `UPDATE`/`DELETE` at the database-permission level.
-2. **Runtime checks.** The application layer exposes no mutating operations on posted records.
-3. **Post-factum.** Tamper evidence: checksums or hash chains over the records, periodically verified, so that any
-   after-the-fact modification is detectable.
-
-When building a real system bugs are unavoidable and might require you to fix the event log/audit trail. In those cases
-it's sometimes easier to update the trail in place instead of keeping it strictly immutable. To balance those two
-worlds it's important to understand your reporting schedule and obligations - usually data has to be kept in stone only
-once it has been reported, e.g. when the financial statement has been shared at the end of the month. Until then you
-might still be able to modify your data in place, if you detect the problem and fix it before it leaves your system.
-
-**Principles touched:**
-
-- **No trust.** An editable history proves nothing; immutability and tamper evidence make the trail trustworthy to an
-  outsider, including yourself investigating an incident.
-
-#### Reversals and corrections
-
-Mistakes still happen, for example a wrong amount gets posted or a transaction lands on the wrong account. Immutability
-means fixing forward - post a new compensating entry and link it to the record it corrects, in both directions.
-
-1. **Reversal.** Negates the original in full, as if it never happened economically - but it stays visible in the
-   history, together with the original.
-2. **Correction (adjustment).** Books the difference between what was recorded and what should have been, or reverses
-   and re-posts with the right values.
-3. **Mind the reporting period.** Corrections often land in a different reporting period than the original (see value
-   time vs booking time); the linkage is what lets reports attribute them correctly and distinguish real activity from
-   cleanup.
-
-The last point is particularly important - when posting corrections/reversals you will need to decide whether to
-backdate the event (specify a value time in the past) or not. Here a lot depends on the reporting schedule again -
-usually you won't be allowed to backdate anything to an already closed period, because it was already reported to the
-external world.
-
-**Principles touched:**
-
-- **No invented data.** Mistakes are fixed by posting linked compensating entries that offset the original record.
-
-#### Immutability vs GDPR
-
-GDPR's right to erasure appears to contradict an immutable ledger. In practice it's quite easy to make it a non-problem:
-
-1. **Financial records are largely exempt.** Legal retention obligations (accounting law, AML, typically 5-10 years)
-   take precedence over erasure requests for transactional data. You don't delete postings in that timeframe.
-2. **Separate PII from financial data.** The exemption covers what you are obliged to keep, not everything you'd like
-   to keep. The immutable ledger references users only by opaque internal identifiers, while PII (names, addresses,
-   documents) lives in a separate, mutable store that can be redacted or erased independently.
-3. **Crypto-shredding for embedded PII.** Where personal data must be embedded in immutable records (e.g. event
-   payloads), encrypt each user's personal fields with a per-user key and erase by deleting the key. Erasure becomes a
-   key deletion, not a rewrite of history.
-
-**Principles touched:**
-
-- **No lost data.** Separating PII from financial data lets you honor erasure without losing the financial history
-  you're obliged to keep.
-
-## Executing money flows
-
-A money operation is rarely a single write. It spans steps, concurrency, and failure, and has to stay correct - never
-inventing or losing money - through all of it. These are the patterns that keep a single flow correct, from the
-invariants it must preserve to surviving a crash mid-way.
-
-### Invariants
-
-In any system there exist special properties that must always hold - we call them invariants. One such invariant is
-the accounting equation mentioned above. Your business stakeholders might define many such conditions that then have to
-be enforced.
-
-There are 3 primary ways to enforce invariants:
-
-1. **By construction.** Make sure that the system allows creating only valid objects, so invalid states are
-   unrepresentable. This can be done through a variety of techniques: factory methods (smart constructors), type-level
-   programming (e.g. refined types), database constraints.
-2. **Runtime checks.** Check that invariants hold when executing logic. This can be assertions in production code or
-   tests - property-based testing shines here (e.g. "for any sequence of postings, the books balance").
-3. **Post-factum.** Analyse the data persisted by the system looking for any violations, e.g. reconciliation jobs or
-   nightly checks that ledger balances still satisfy the accounting equation.
-
-What's important: those methods are complementary and you will usually use all of them side by side to achieve the
-desired level of trust. By construction is the strongest but cannot express everything (especially cross-aggregate or
-cross-system invariants), runtime checks catch violations at the point of occurrence, and post-factum is the only one
-that catches bugs that already shipped - but catches them late.
-
-**Principles touched:**
-
-- **No trust.** Invariants are verified, not assumed; even your own code's output gets checked.
-
-### Funds reservation
-
-In most cases your transactions will require interaction with the external world. For example, you might need to
-run compliance checks before allowing a user to withdraw funds, or you need to register the withdrawal in an external
-system.
-
-In such cases you also have to avoid race conditions - spending the same money twice, or discovering "insufficient
-balance" only after the external world interaction already happened.
-
-To address this, systems implement funds reservation (also known as hold-and-release), where funds are first reserved
-for a particular transaction before the external interaction starts. Once it completes, the reservation is settled and
-the transaction proceeds; if anything goes wrong, the reservation is released and the funds return to the available
-balance.
-
-This pattern introduces a distinction between two balances: the **total balance** (everything the user owns, including
-reserved funds) and the **available balance** (`available = total - reserved`). Balance checks and new reservations are
-made against the available balance, which is what prevents the same funds from backing two transactions.
-
-A few practical notes:
-
-1. **The final amount may differ.** It's not always known upfront; fees or rates may differ from the estimate. In that
-   case you reserve the estimated amount, settle the actual one, and release the remainder.
-2. **A reservation must always resolve.** One that's never settled nor released locks user funds, so every flow that
-   creates one must guarantee it eventually resolves it. An explicit expiry/timeout can serve as a safety net, but it's
-   optional - you can rely on internal system discipline instead. Notably, the failure mode is conservative: an orphaned
-   reservation locks money, it never loses or creates it.
-3. **It needs strong consistency.** Checking the balance and recording the reservation must be linearizable. On a stale
-   read, two transactions can both pass the check and back their spends with the same funds. So no eventual consistency
-   here, sorry.
-
-**Principles touched:**
-
-- **No invented data.** The same funds can never back two transactions; a reservation makes this explicit instead of
-  relying on a racy balance check.
-
-### Handling overdrafts
-
-An overdraft happens when an account balance goes negative. Overdrafts come in two kinds:
-
-1. **Intentional.** An overdraft is a credit product the business explicitly offers, with limits and interest. This is
-   a business feature, not an anomaly, and is mostly out of scope here. This will most likely be modeled as a separate
-   overdraft account (liability for the user, receivable for the operator) with a positive balance.
-2. **Unintentional.** The balance goes negative even though policy forbids it.
-
-Unintentional overdrafts happen even in correct systems, because the external world doesn't ask for permission: a
-settlement comes in higher than the reserved estimate or a reversal lands after the funds already left. Funds
-reservation reduces the window for overdrafts but cannot eliminate it.
-
-**Forbidden is not the same as unrepresentable**. It's tempting to encode
-"balance is never negative" at the type or storage level as an unsigned integer or a `CHECK (balance >= 0)` constraint.
-But when we are forced to accept a negative balance, a system that cannot represent it will either crash mid-flow,
-silently
-clamp the balance to zero (inventing money), or do something similarly wrong.
-
-Put differently, "balance >= 0" is just an invariant and the usual toolbox applies: enforce it at runtime when
-authorizing transactions, detect violations post-factum with monitoring and reconciliation - but don't force it by
-construction. When an overdraft is detected, it's a signal to investigate but not necessarily a bug.
-
-When an overdraft does happen, we have to book it and recover explicitly, e.g. by netting it against future deposits,
-requesting repayment, or writing it off - as an explicit compensating entry to an expense/loss account.
-
-**Principles touched:**
-
-- **No invented data.** Clamping a negative balance to zero mints money.
-- **No trust.** The external world can force an overdraft no matter what your checks say.
-
-### Idempotency
-
-In a distributed system it's impossible to guarantee exactly-once delivery - any call can be interrupted and we won't
-know whether it reached the other side or not. To make sure a message is delivered, we have to retry every such call.
-But in doing so we risk delivering it more than once, hence its processing needs to be idempotent - the same message
-delivered twice must trigger the processing only once.
-
-1. **Prefer explicit keys.** Idempotency keys vs business-derived idempotency (e.g. deduplicating on the payload). An
-   explicit key is usually the simpler and better solution - deriving it from the data is fragile, e.g. it's hard to
-   tell whether two transactions with the same amount are a duplicate or two genuine operations. When using idempotency
-   keys make sure they are scoped to a particular operation and client.
-2. **Decide how errors replay.** When a call failed the first time, should a retry re-raise the stored error or
-   re-trigger the processing? It's usually simpler and easier to reason about when we treat the error as the idempotent
-   result and replay it. The client can always retry with a new key. A lot depends on the nature of errors - permanent
-   ones (e.g. validation) should be replayed as-is while temporary ones (e.g. network failure) might be reprocessed.
-3. **Validating the repeated payload.** It's good practice to ensure a repeated call carries the same payload as the
-   original. In practice this gets costly and buys only a little extra confidence, at the cost of a more complex
-   implementation and less flexibility (the caller might change the request for a good reason).
-4. **At scale it's hard.** Building reliable idempotency can be a complex endeavour, so dedicate enough effort to it.
-   Not only might you need to deduplicate billions of requests, but you also have to get the behavior right under
-   concurrent access (e.g. two duplicate calls arriving in the same millisecond). Your idempotency barrier has to be
-   atomic.
-5. **Beware time windows.** You might be tempted to rely on an idempotency time window, e.g. dedupe only within 24h.
-   This significantly simplifies the implementation (otherwise the data volume grows forever) but at the cost of
-   correctness. Make this tradeoff only if you absolutely have to, because it will haunt you later.
-6. **Test for retries.** One of the better approaches is to bake a generic middleware into your integration or system
-   tests that automatically repeats every call.
-7. **Handle out-of-order retries.** Your system needs to stay idempotent even if it already moved to a new state - e.g.
-   keep putting the funds on hold idempotent even if they were already released.
-
-Idempotency matters on both sides - when you make calls and when you receive them. Keep it in mind every time you
-consume or expose an operation.
-
-**Principles touched:**
-
-- **No invented data.** Retries are unavoidable, so processing must collapse duplicate deliveries into a single effect
-  instead of moving money twice.
-
-### Full resumability
-
-A money flow rarely happens in a single step. A withdrawal might reserve funds, run compliance checks, register the
-operation in an external system, and finally settle. Such a sequence is stretched across time and can die between any two
-of those steps, so the safe assumption is that it will: assume failure every two steps. A flow can therefore never
-assume it runs to completion in one go, and a half-finished one must always land in a recoverable state, never an
-inconsistent one.
-
-1. **Persist progress, don't keep it in memory.** Model the flow as an explicit state machine whose state is durably
-   stored, and commit each step's completion before starting the next. A restart must be able to tell exactly where the
-   flow was.
-2. **Something must resume stalled flows.** An independent driver (a scheduler, worker, or poller) has to pick up
-   incomplete flows and push them forward. A crash of the orchestrator must not strand a flow forever.
-3. **Every step must be safe to re-run.** On resume you may re-execute a step that already partially happened, so each
-   one has to be idempotent (see idempotency).
-4. **Roll forward or compensate.** External effects can't be rolled back. Once you've called the outside world you
-   can't un-call it, and a database rollback won't undo it. So you either retry forward until the flow completes, or,
-   when a later step fails for good, post compensating actions to unwind the earlier ones (the saga pattern).
-
-You can use a durable-execution engine (e.g. Temporal, Camunda, Workflows4s, AWS Step Functions) or hand-roll your own
-persistent state machine.
-
-**Principles touched:**
-
-- **No lost data.** A crash in the middle of a flow must never lose track of in-flight money; persisted progress is
-  what lets the flow be picked up and finished.
-- **No invented data.** Resuming re-runs steps, so they must re-apply without double-counting - the flow completes
-  exactly once.
-
-## The external world
-
-Interacting with the external world - whether in the form of 3rd party providers (payments, KYC, AML, banks,
-custodians, etc.) or internal services - is unavoidable. Our job is to build a system that stays correct regardless of
-how unreliable those dependencies become.
-
-### Consuming APIs
-
-Sooner or later you will have to call someone else's API, e.g. a payment provider, a custodian, a blockchain node, or a
-KYC vendor. You don't control its code, its quality, or its uptime, so the safe default is to assume it will misbehave
-and to build defensively around it.
-
-1. **Don't trust the schema.** The response will not always match the contract you were given: fields can go missing,
-   types can change, nulls can appear where they shouldn't. Validate the important pieces at the boundary and fail
-   loudly on anything you didn't expect, so malformed data cannot leak into the system. At the same time, never validate
-   the pieces you don't need, as it might cause unnecessary outages when a third party breaks its contract. And they
-   will.
-2. **Expect imperfect engineering.** Everything you consider a questionable engineering practice will rear its head
-   given enough time: tokens passed in URLs, lost precision, HTTP codes that don't mean what they should (a `200`
-   carrying an error body), inconsistent pagination, custom date formats. Don't get frustrated by it; treat it as the
-   job rather than the exception.
-3. **All calls will fail.** Design the system so that it can handle a lack of response. Retries and timeouts are
-   necessary protection.
-4. **Circuit breakers are usually optional.** They are mostly a courtesy toward an overloaded server, paid for by you
-   with added complexity on the client side. It's reasonable to expect the server to handle its own load and drop
-   requests it can't serve. That being said, a circuit breaker also protects your latency and finite resources (threads,
-   connections, etc.), so employ one when it's really needed.
-5. **Mind the quotas.** Rate limits and usage quotas are easy to forget but can be a source of nasty weekend outages.
-   It's good to do a bit of napkin math up front (expected call volume against the provider's limits) so you find out
-   before it causes a problem.
-6. **Store every request and response.** It might sound excessive, but it can be a lifesaver during an investigation
-   when an external API starts returning something it never should. Persist what you sent and what came back, in a
-   structured, queryable form (e.g. a Redshift table). This will also be your audit trail and evidence when the
-   provider's behavior is disputed, and your material for reprocessing after a bug.
-7. **Aim for provider redundancy.** For the most critical parts, consider using more than one provider for the same
-   purpose. You can never fully trust the provider, so when the stakes are highest this can mean validating the data
-   against multiple sources (e.g. two blockchain nodes) or having a backup bank partner, crypto custodian, or KYC vendor.
-   This approach is extremely expensive (development, fees, and complexity-wise) but might be necessary to achieve the
-   desired level of reliability.
-8. **Don't trust the sandbox.** If a provider gives you testing/sandbox access, that's already a good sign. Those
-   environments are fine for basic scenarios but will usually diverge very significantly from the production setup. Be
-   prepared to test in production (e.g. through canary releases and controlled usage with small impact).
-
-**Principles touched:**
-
-- **No trust.** The provider's code, schema, and uptime are all outside your control, so verify facts against
-  independent sources and validate everything at the boundary.
-- **No lost data.** Persisting every request and response keeps a record you can reconcile against and reprocess from.
-
-### Handling webhooks
-
-Webhooks are the most common way to receive signals from external systems, but processing them safely is not trivial.
-While we focus here on webhooks (HTTP endpoints you expose, called by an external system with a payload defined by that
-system) many of the points apply to other transport methods as well.
-
-1. **Don't assume ordering.** Messages can arrive out of order or carry stale data, so the last webhook you received is
-   not necessarily the latest truth. Don't blindly overwrite your state with whatever just arrived; reconcile it against
-   what you already know (e.g. by querying the API for the current state).
-2. **Don't assume validity.** Webhooks might come from a secondary part of the issuer's system and carry stale or
-   improperly transformed data. A good practice is to ignore the content of the webhook and use it only as a trigger to
-   query the API for the authoritative state. Beware that the API can be eventually consistent and lag behind the
-   webhook, so a query right after the trigger may still return the old state - be ready to retry.
-3. **Don't assume delivery.** Webhooks will get lost sooner or later, regardless of how strong a re-delivery policy the
-   issuer promises. You have to be prepared to handle a missing webhook, which usually means an independent process that
-   fixes the completeness of your data. See reconciliation.
-4. **Don't assume single delivery.** The same webhook will be delivered more than once. Processing must be idempotent.
-   See idempotency.
-5. **Acknowledge fast, process asynchronously.** Return a 2xx as soon as you've durably stored the raw event, and do
-   the real work asynchronously. If you process inline and are slow, the issuer can time out and retry, multiplying your
-   load.
-6. **Persist the raw payload.** Store what you received verbatim before acting on it. It will not only make processing
-   more reliable but will also act as your audit trail of what the provider actually said. It also lets you reprocess
-   the message after a bug without asking the provider to resend.
-7. **Verify the caller.** The usual mechanism is for the issuer to attach a signature of the payload, so you can verify
-   the message really came from them. Most commonly this is an HMAC computed with a shared secret; less commonly it's an
-   asymmetric signature whose public half is published. One caveat: verify the signature over the *raw bytes* you
-   received, not a re-serialized payload (re-serialization changes bytes and breaks the signature). Even with this,
-   prefer not to trust the content (see point 2).
-
-There is a recurring theme here: don't trust the webhook. Treat it as a hint that *something*
-happened, not a trustworthy account of *what* happened.
-
-**Principles touched:**
-
-- **No trust.** A webhook is an unauthenticated, unordered, possibly-lost, possibly-duplicated hint; verify the source
-  and confirm the actual state against the API.
-- **No lost data.** Persist the raw event and back delivery up with reconciliation so a dropped webhook doesn't mean a
-  dropped fact.
-
-### Notifying reliably (Outbox and CDC)
-
-It's quite often a requirement to let the external world know about changes in our system in a reliable way - by
-publishing a Kafka event, dispatching a webhook call, or through a plethora of other means. The problematic part is
-_reliably_: we have to ensure at-least-once delivery, and those channels don't fit the usual transactionality model we
-tend to rely on. Without transactionality we risk either:
-
-- **Publish then rollback.** The publish succeeded but we didn't get the response due to a network issue, so we roll
-  back our system's state.
-- **State change without publish.** The publish genuinely failed but we didn't roll back.
-
-The textbook answer is a 2-phase commit/distributed transaction, but it's rarely used due to its complexity and the lack
-of a good way to standardize and reuse the approach. The practical options:
-
-1. **Outbox pattern.** A "publishing" event is written transactionally (with the state change) into a dedicated store,
-   and from there it's reliably processed (take a row, retry until success). In other words, we reliably save
-   "publishing intent" and then process it later.
-2. **Change Data Capture (CDC).** An automated mechanism that detects changes committed to the database (typically by
-   tailing its write-ahead/replication log) and turns them into a stream of events. Because it reads straight from the
-   log, every committed change is captured and nothing is missed, without any explicit publishing code in the
-   application. Tools like Debezium or AWS DMS implement this off the shelf. The tradeoff is coupling and operational
-   weight: raw CDC emits events shaped like your table rows and needs postprocessing to avoid leaking the internal
-   schema to consumers.
-3. **Listen-to-yourself.** Reverse the order and publish the event first (e.g. to Kafka), then rebuild our own state
-   from it.
-4. **Event sourcing.** The event log already lives in the database, so publishing is just a matter of reading from it
-   (see Event sourcing).
-
-Whichever mechanism you pick, delivery is at-least-once - the relay or connector can publish and then crash before
-recording that it did, re-sending on restart. Consumers must therefore be idempotent and deduplicate on a stable event
-id (see idempotency).
-
-**Principles touched:**
-
-- **No lost data.** A committed change must reliably reach its consumers; the outbox (or the log) guarantees the
-  notification can't be dropped just because a separate publish step failed.
-- **No invented data.** We never publish a notification for a change that didn't commit, and duplicate deliveries
-  collapse into a single effect.
-
-### Reconciliation
-
-Any system that relies on external data is prone to data drift - a situation where one system doesn't match the other.
-For example, you might miss a webhook, or a transaction might be posted to the ledger but not reflected in the external
-provider's system. In all such cases we need reconciliation: a process that aligns the two systems. While we say "two",
-in practice it can be more than that, e.g. ledger, payment processor, and the bank, but this doesn't change anything in
-how to approach the problem.
-
-1. **Cadence.** Depending on the exact context and constraints, reconciliation might be done hourly, daily, monthly, or
-   even yearly.
-2. **Nature of drift.** Data can be missing (which is an easy case) or different (e.g. the same transaction with
-   different amounts, which is much more complicated to solve). Timing also matters a lot: if settlements happen at T+3,
-   records will stay unreconciled for 3 days - that logic should be incorporated into the process so that we don't alert
-   on those cases.
-3. **Matching algorithm.** Knowing what to compare between the two systems is the hard part. Usually you want to
-   persist the external provider id within your system so that matching is straightforward. If this is not the case,
-   heuristic algorithms enter the game (e.g. matching by amount and time).
-4. **One-to-many.** In some cases you will have to reconcile multiple records on one side with one on the other, e.g.
-   a single settlement transfer might cover a couple of transactions.
-5. **Aligning is not trivial.** It goes without saying we can't simply overwrite the data to make the reconciliation
-   happy. Each discrepancy found should be understood and fixed through first-class support, e.g. a correction record,
-   reprocessing of webhook data etc.
-
-**Principles touched:**
-
-- **No trust.** Reconciliation is how we verify across independent sources instead of believing any single one is
-  right.
-- **No lost data.** It's the safety net that catches the dropped fact - the missing webhook, the unsettled transfer -
-  before it disappears for good.
-
-## Controls and access
-
-The patterns so far keep the *data* correct. But a money system also has to constrain who is allowed to act on it, and
-prove after the fact that the process was followed. This is where the **No trust** principle turns inward and your own
-operators and engineers are a trust boundary too, just like external providers and internal components. An auditor
-examines
-these controls alongside the books themselves.
-
-### Segregation of duties and four-eyes
-
-Some actions are too sensitive to leave to a single person, regardless of how trusted they are. Splitting them is the
-oldest control in
-finance, and it takes two related forms: **segregation of duties** (no one person owns a whole process) and *
-*four-eyes / maker-checker** (a specific action needs a second person
-to approve it before it takes effect, also called dual control).
-
-1. **It applies to money operations.** Large or manual withdrawals, manual ledger corrections, treasury and cold-wallet
-   moves, changing a fee schedule or a limit - anything that can move or misstate funds is a candidate for a second
-   approver.
-2. **It applies to engineering too.** Merging code, deploying to production, and changing infrastructure are sensitive
-   actions in a money system. Hence we usually require review and approval.
-3. **The approval is part of the trail.** Record who requested, who approved, and that the two were
-   different people - otherwise the control is unprovable (see [Audits and audit trails](#audits-and-audit-trails)).
-4. **Break-glass needs a path.** Emergencies happen, and a rigid control invites people to route around it. Provide an
-   explicit, heavily-audited override rather than forcing a backdoor.
-
-**Principles touched:**
-
-- **No trust.** A single internal actor - even a trusted one - is not sufficient authority for a sensitive or
-  irreversible action.
-
-### Access control
-
-Who can do what is itself part of the system's state, and it changes over time as people join, move teams, and leave.
-It's not enough to know who can touch funds today; Auditors will also ask how they came to have that access.
-
-1. **Least privilege.** Grant each actor - human or service - the minimum needed, and prefer roles (RBAC) over
-   per-person grants so that access stays reviewable.
-2. **Authorization changes need a trail.** Granting or revoking a capability is a sensitive event, exactly
-   like a money movement: record what changed, who changed it, and why. The audit-trail discipline from the ledger
-   applies here too (see [Audits and audit trails](#audits-and-audit-trails)).
-3. **Review access periodically.** Permissions become stale or inaccurate. Scheduled access
-   reviews (recertification) are the post-factum check (see [Invariants](#invariants)) applied to access so that we can
-   catch the drift.
-
-**Principles touched:**
-
-- **No trust.** Standing access quietly accumulates; least privilege and periodic review are what keep it in check.
-
-### The change trail (SDLC)
-
-In a regulated environment we usually have to audit how code reaches production and so know who reviewed a change, who
-approved it, when it shipped, and so on. Your version control and CI/CD systems are a great help here if done right.
-
-1. **Source control is the record.** Commit history attributes every change to an author and ties it - through review
-   and linked tickets - to the reason it was made (it's the usual *what / who / why* an audit trail demands). Protect it
-   accordingly via signed commits, protected branches, no force-pushing shared history.
-2. **Reviews and pipelines must be enforced.** Required (non-optional) reviews, status checks, and "no direct pushes to
-   main" are crucial because discipline doesn't fly in audits.
-3. **Deployments are traceable.** Which version is running, who released it, and when, should be reconstructable - this
-   is what lets an incident be tied back to the change that caused it.
-
-**Principles touched:**
-
-- **No lost data.** The history of how the system itself came to be is as much a part of the trail as the history of the
-  money it holds.
-- **No trust.** The system enforces the delivery controls - it doesn't rely on people remembering to follow them.
-
-## Testing
-
-Tests matter everywhere, but in a money system they matter more. The difficulty is that you usually can't enumerate the
-expected outputs - the space of operation sequences is too large and the interesting failures live in the combinations.
-The approaches below are ways to gain confidence in the correctness of our system. Treat it as a restaurant menu from
-which you can choose the techniques with the most impact on your system.
-
-1. **Property-based testing.** Instead of asserting specific outputs, you assert that a property holds for any generated
-   input. This is a natural fit for invariants or money math. The framework generates the awkward cases you wouldn't
-   think to write by hand.
-2. **Invariant checks between steps.** When you generate a sequence of operations, don't only assert the invariants at
-   the end - assert them after every single step. This is impossible to do manually at scale, so you would need a more
-   sophisticated testing harness that automatically injects the assertions.
-3. **Generative idempotency testing.** Since every operation that touches the outside world has to be idempotent (see
-   idempotency), you can make that a property of your system. Using a similar approach to the one above, you can
-   automatically repeat all the declared operations and assert the lack of impact on the system from the second call.
-4. **Crash and resume injection.** Long flows must survive dying between any two steps (see full resumability), and we
-   can test exactly that by following the usual approach: inject a failure at every step.
-5. **Round-trip testing.** Encode then decode, serialize then deserialize, convert then convert back - and assert you
-   land where you started (or within a known tolerance). It's a quick way to catch precision loss at boundaries and
-   serialization bugs in your money and currency types. It plays really well with automatic data generation.
-6. **Golden testing.** Pin the output of a calculation or projection (a fee breakdown, a statement, a report) to a
-   stored expected result, so any unintended change shows up as a diff. Useful for the gnarly, hard-to-reason-about
-   computations where you trust a reviewed-once result more than a freshly written assertion.
-7. **Backward-compatibility testing.** Events and stored records live for years, and today's code must still read what
-   old code wrote (see event sourcing). Keep a corpus of real, old-format payloads and assert that current code still
-   deserializes and projects them correctly - this is what stops a schema change from silently breaking history.
-8. **Testing in production.** Some confidence is only obtainable against the real thing. Provider sandboxes diverge
-   significantly from production (see consuming APIs), so the final proof that an integration works often has to happen
-   live - through a canary release, a controlled rollout with a small blast radius, or synthetic transactions that push
-   small real amounts through the system continuously as a health check. The money-specific caveat is that these are
-   real
-   movements: a test in production moves real money, so it must go through the same ledger, reconciliation, and audit
-   trail
-   as everything else, be clearly tagged, and be cleaned up through the normal correction/reversal machinery - never a
-   backdoor that bypasses the books.
-
-**Principles touched:**
-
-- **No trust.** Tests are how you verify the patterns actually hold rather than assuming they do; the invariant is the
-  oracle, not a value you happened to expect.
-- **No invented data.** Replaying operations and injecting failures proves that retries and recovery don't double-count
-  or mint money.
-- **No lost data.** Round-trip and backward-compatibility tests prove that precision and history survive boundaries and
-  the passage of time.
-
-## Appendix A: Know your domain
-
-The hardest part of joining fintech is often not the code but the vocabulary and concepts behind it. The field is full
-of
-words that sound ordinary but mean something precise, and acronyms that everyone around you uses without ever expanding.
-
-Caveats: terms a layperson already knows (deposit, withdrawal, transfer, currency) are skipped, and so
-are the exotic corners you can learn when you get there. We try to focus on the most important terms. Where the handbook
-already covers a concept properly, the entry links to that section instead of repeating it.
-
-### Accounting & ledgers
-
-- **Ledger** - the system of record for money movements; the source of truth from which balances are derived (see
-  [Double-entry bookkeeping](#double-entry-bookkeeping)).
-- **General ledger vs sub-ledger** - the single consolidated book vs a detailed book for one domain (e.g. one per user
-  or product) that rolls up into it.
-- **Debit / credit** - the two sides of every entry. Which one *increases* an account depends on the account's type,
-  not on "money in vs money out" (see [Double-entry bookkeeping](#double-entry-bookkeeping)).
-- **Posting** - committing an entry to the ledger; "posted" means recorded and, by convention, immutable.
-- **Chart of accounts** - a catalogue of the accounts that can be posted to; a single system can have several (e.g.
-  per legal entity, per book, or per reporting standard).
-- **Account type** - asset / liability / equity (plus revenue / expense), so the **accounting equation** holds and each
-  account has a defined side on which it increases (see [Double-entry bookkeeping](#double-entry-bookkeeping)).
-- **Receivable / payable** - money owed *to* you / money owed *by* you.
-- **IOU** - informally, a liability: a record that you owe someone money. A user's balance on a custodial platform is an
-  IOU from the platform to the user, which is why it sits on the liability side of the books.
-- **Accrual vs cash basis** - recognising money when it's earned or owed vs when it actually moves.
-- **Trial balance** - a check that total debits equal total credits across the books.
-- **Suspense / clearing account** - a temporary holding account for money that's in transit or not yet attributable.
-- **Write-off** - booking a balance you no longer expect to recover as a loss (see
-  [Handling overdrafts](#handling-overdrafts)).
-- **Commingling** - mixing company funds with user funds; a regulatory red flag (see
-  [Audits and audit trails](#audits-and-audit-trails)).
-- **Reconciliation break** - a single unmatched discrepancy surfaced by [reconciliation](#reconciliation).
-
-### Money & FX
-
-- **Money (as a type)** - an amount paired with a currency (see
-  [Currency handling](#currency-handling)).
-- **Minor units** - the smallest indivisible unit of a currency; amounts are often stored as integers of these (€12.34
-  → `1234`) (see [Precision handling](#precision-handling)).
-- **Basis point (bp / "bip")** - one hundredth of a percent (0.01%); fees and rates are routinely quoted in these.
-- **Notional** - the face value a calculation is based on, which may be far larger than the cash that actually changes
-  hands.
-- **Fiat vs crypto** - state-issued currency vs blockchain-native asset
-- **Stablecoin** - a token pegged to a reference asset, usually a fiat currency like USD.
-- **Pegged / wrapped / bridged** - representations connected to an underlying asset but *not* equivalent to it (see
-  [Currency handling](#currency-handling)).
-- **Bid / ask / spread** - the buy price, the sell price, and the gap between them.
-- **Mid-market rate** - the midpoint between bid and ask; a reference point, not a price you can actually trade at (see
-  [FX Rates](#fx-rates)).
-- **Reference rate** - a rate used for valuation and equivalence (holdings value, a tax base), not for an actual trade
-  (see [FX Rates](#fx-rates)).
-- **Mark-to-market** - revaluing a holding at the current market rate rather than the price it was acquired at.
-
-### Transactions, timing & settlement
-
-- **Value date / booking date / settlement date** - when it happened / when we recorded it / when money actually moved
-  (see [Value time vs booking time vs settlement time](#value-time-vs-booking-time-vs-settlement-time)).
-- **T+X** - something (e.g. settlement) happens X business days after the value date (e.g. T+2).
-- **Clearing vs settlement** - agreeing who owes what vs actually transferring the money.
-- **Cut-off time** - the daily deadline after which a transaction rolls into the next settlement window.
-- **Float** - money that, mid-transfer, appears to exist in both systems at once (or in neither).
-- **Netting** - offsetting many obligations into a single net transfer instead of settling each one gross.
-- **Backdating** - assigning a value date earlier than the booking date (see
-  [Value time vs booking time vs settlement time](#value-time-vs-booking-time-vs-settlement-time)).
-- **Reversal / correction** - negating a posting in full as if it never happened economically vs booking the difference
-  between what was recorded and what should have been (see [Reversals and corrections](#reversals-and-corrections)).
-
-### Payments, rails & cards
-
-- **Payment rail** - the underlying network a payment travels over (SEPA, SWIFT, ACH, card networks, a blockchain).
-- **IBAN / SWIFT / SEPA / ACH / FPS / CHAPS / wire** - identifiers and networks for moving fiat between banks.
-- **Originator / beneficiary** - who sends / who receives a transfer (also remitter / payee, payer / payee).
-- **PSP (payment service provider)** - a vendor that connects you to one or more rails.
-- **Nostro / vostro account** - "our money held at their bank" / "their money held at ours"; the accounts that make
-  cross-bank transfers work.
-- **Omnibus account** - one pooled account holding many users' funds together, with per-user balances tracked
-  internally. Legitimate pooling, as opposed to commingling.
-- **FBO ("for benefit of") account** - an account a company holds on behalf of its users.
-- **Sweep** - automatically moving balances between accounts on a schedule (e.g. into cold storage or an
-  interest-bearing account).
-- **Chargeback** - a forced reversal of a card payment, initiated by the cardholder's bank.
-- **Issuer / acquirer** - the cardholder's bank / the merchant's bank.
-- **Interchange** - the fee the acquirer pays the issuer on each card transaction; the bulk of card-processing cost.
-- **Authorization vs capture** - placing a hold on funds vs actually charging them; the card world's version of
-  [funds reservation](#funds-reservation).
-- **Dunning** - the retry-and-notify process for recovering a failed recurring payment.
-
-### Trading & markets
-
-- **Order book** - the live list of outstanding buy (bid) and sell (ask) orders at each price level.
-- **Market vs limit order** - execute now at the best available price (takes liquidity) vs only at a set price or better
-  (rests on the book, provides liquidity).
-- **Maker / taker** - maker adds a resting order to the book, taker crosses the spread and removes one; fees usually
-  differ.
-- **Slippage** - the difference between the expected price and the price actually filled.
-- **Liquidity / depth** - how much can be traded before the price moves; thin books move more.
-- **Spot** - buying or selling the asset itself for immediate delivery.
-- **Derivative** - a contract whose value derives from an underlying asset rather than the asset itself.
-- **Futures / perpetual (perp)** - a contract to trade at a future date / one with no expiry, kept near spot by a
-  funding rate.
-- **Funding rate** - periodic payment between longs and shorts that tethers a perp's price to the index.
-- **Long / short** - a position that profits when the price rises / falls.
-- **Leverage / margin** - controlling a position larger than your capital / the collateral posted to open and maintain
-  it.
-- **Liquidation** - forced closing of a position when its margin falls below the maintenance requirement.
-- **Haircut** - a discount applied to the value of collateral to cushion against price moves.
-- **Counterparty** - the other side of a trade or contract; "counterparty risk" is the risk they fail to deliver.
-- **AUM / AUC** - assets under management (client assets the platform actively manages, usually under a fee-bearing
-  mandate) vs assets under custody (client assets it merely safekeeps). The same holdings can be one, the other, or
-  both.
-
-### Custody & crypto
-
-- **Custody** - who controls the assets: self-custody (the user holds the keys) vs custodial (the platform or a
-  custodian holds them).
-- **Hot / cold wallet** - keys kept online for quick access vs kept offline for security.
-- **Private key / public key / address** - the secret that authorises spending / its derived public identifier / where
-  funds are received.
-- **Seed phrase** - the human-readable backup that reconstructs a wallet's keys.
-- **Multisig / MPC** - requiring several keys (or key-shares) to authorise a transfer, so no single device can move
-  funds alone.
-- **Gas / network fee** - the fee paid to get a transaction included on a blockchain.
-- **Confirmation / finality** - a block built on top of the one containing your transaction / the point at which it can
-  no longer be reversed. More confirmations = more finality.
-- **Reorg** - a blockchain reorganisation that can undo recently confirmed transactions; the reason finality isn't
-  instant.
-- **Mempool** - the pool of pending transactions waiting to be included in a block.
-- **UTXO vs account model** - Bitcoin-style "spend whole coins, receive change" vs Ethereum-style running balances; the
-  two demand different accounting.
-- **Token vs coin** - an asset issued on top of a chain (e.g. an ERC-20) vs a chain's native asset (BTC, ETH).
-- **Dust** - an amount so small that the network fee to move it exceeds its value.
-- **Address whitelisting (allow-listing)** - restricting withdrawals to a set of pre-approved addresses.
-
-### Compliance & regulation
-
-- **KYC** - Know Your Customer; verifying a user's identity.
-- **AML / CFT** - Anti-Money-Laundering / Countering the Financing of Terrorism; controls to detect and prevent illicit
-  funds.
-- **Sanctions screening** - checking parties against sanctioned-entity lists.
-- **PEP** - politically exposed person; a higher-risk customer category requiring extra diligence.
-- **SoF / SoW** - source of funds / source of wealth; evidence of where a customer's money came from.
-- **Travel Rule** - the requirement to share originator and beneficiary information on transfers above a threshold.
-- **VASP** - Virtual Asset Service Provider; the regulatory label for a crypto business such as an exchange or
-  custodian.
-- **MiCA** - the EU's Markets in Crypto-Assets regulation.
-- **Segregation of duties** - splitting a sensitive action across people so no single person can complete it alone (see
-  [Segregation of duties and four-eyes](#segregation-of-duties-and-four-eyes)).
-- **Four-eyes / maker-checker / dual control** - requiring a second person to approve a sensitive action before it takes
-  effect (see [Segregation of duties and four-eyes](#segregation-of-duties-and-four-eyes)).
-- **Least privilege / RBAC** - granting each actor the minimum access needed / managing it through roles rather than
-  per-person grants (see [Access control](#access-control)).
-- **Change management** - the controlled, traceable process (review, approval, deployment) by which code and config
-  reach production (see [The change trail (SDLC)](#the-change-trail-sdlc)).
-- **Audit / audit trail** - external scrutiny that the books and controls reflect reality / the recorded history that
-  lets any balance or decision be reproduced (see [Audits and audit trails](#audits-and-audit-trails)).
-
-### Resources
-
-No single book covers money systems end to end, so the list below is grouped by layer. Each entry notes what it covers
-and who it's pitched at, so you can pick by what you're missing.
-
-**Accounting & ledgers**
+1. **Por construção.** Garanta que o sistema só permita criar objetos válidos, de modo que estados inválidos sejam
+   irrepresentáveis. Isso pode ser feito por diversas técnicas: métodos de fábrica (*[smart constructors](https://wiki.haskell.org/Smart_constructors)*), programação
+   no nível de tipos (por exemplo, *[refined types](https://en.wikipedia.org/wiki/Refinement_type)*), restrições no banco de dados.
+2. **Verificações em runtime.** Verifique que as invariantes valem ao executar a lógica. Podem ser asserções em código
+   de produção ou testes — [testes baseados em propriedades](https://doi.org/10.1145/351240.351266) brilham aqui (por exemplo, "para qualquer sequência de
+   lançamentos, os livros fecham").
+3. **Pós-fato.** Analise os dados persistidos pelo sistema em busca de violações, por exemplo, rotinas de conciliação ou
+   verificações noturnas de que os saldos do razão ainda satisfazem a equação contábil.
+
+O importante: esses métodos são complementares e você normalmente usará todos lado a lado para atingir o nível de
+confiança desejado. Por construção é o mais forte, mas não expressa tudo (especialmente invariantes entre agregados ou
+entre sistemas), verificações em runtime pegam violações no ponto de ocorrência, e pós-fato é o único que pega bugs que
+já foram para produção — mas os pega tarde.
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** Invariantes são verificadas, não presumidas; até a saída do seu próprio código é checada.
+
+### Reserva de fundos {#funds-reservation}
+
+Na maioria dos casos suas transações exigirão interação com o mundo externo. Por exemplo, você pode precisar rodar
+verificações de compliance antes de permitir que um usuário saque fundos, ou registrar o saque em um sistema externo.
+
+Nesses casos você também precisa evitar condições de corrida — gastar o mesmo dinheiro duas vezes, ou descobrir "saldo
+insuficiente" só depois que a interação com o mundo externo já aconteceu.
+
+Para resolver isso, os sistemas implementam a reserva de fundos (também conhecida como *hold-and-release*), em que os
+fundos são primeiro reservados para uma transação específica antes de a interação externa começar. Quando ela conclui, a
+reserva é liquidada e a transação prossegue; se algo der errado, a reserva é liberada e os fundos voltam ao saldo
+disponível.
+
+Esse padrão introduz uma distinção entre dois saldos: o **saldo total** (tudo o que o usuário possui, incluindo fundos
+reservados) e o **saldo disponível** (`disponível = total - reservado`). Verificações de saldo e novas reservas são
+feitas contra o saldo disponível, o que é justamente o que impede que os mesmos fundos lastreiem duas transações.
+
+Algumas notas práticas:
+
+1. **O valor final pode diferir.** Nem sempre é conhecido de antemão; tarifas ou taxas podem diferir da estimativa.
+   Nesse caso você reserva o valor estimado, liquida o real e libera o restante.
+2. **Uma reserva sempre precisa se resolver.** Uma que nunca é liquidada nem liberada trava os fundos do usuário, então
+   todo fluxo que cria uma deve garantir que ela seja resolvida em algum momento. Um vencimento/timeout explícito pode
+   servir de rede de segurança, mas é opcional — você pode confiar na disciplina interna do sistema. Notavelmente, o
+   modo de falha é conservador: uma reserva órfã trava dinheiro, nunca o perde ou cria.
+3. **Precisa de consistência forte.** Verificar o saldo e registrar a reserva deve ser [linearizável](https://en.wikipedia.org/wiki/Linearizability). Numa leitura
+   defasada, duas transações podem passar na verificação e lastrear seus gastos com os mesmos fundos. Então nada de
+   consistência eventual aqui, sinto muito.
+
+::: {.callout-tip}
+## No Pix
+O envio de um Pix é um caso-livro de *hold-and-release*. Quando o pagador confirma, o PSP do pagador primeiro **reserva
+(bloqueia) o valor** na conta — debitando do saldo disponível — e só então envia a ordem de pagamento para liquidação no
+SPI. Se o SPI confirma a liquidação, a reserva é **liquidada** (o débito se torna definitivo); se a ordem é rejeitada ou
+falha, a reserva é **liberada** e o valor volta ao saldo disponível. Sem essa reserva, o cliente poderia iniciar dois
+Pix simultâneos com o mesmo saldo. E como a liquidação no SPI é **bruta e em tempo real**, a verificação de saldo e o
+bloqueio precisam ser linearizáveis — exatamente a consistência forte que a nota 3 exige.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhum dado inventado.** Os mesmos fundos nunca podem lastrear duas transações; uma reserva torna isso explícito em
+  vez de depender de uma verificação de saldo sujeita a corrida.
+
+### Lidando com saldos negativos (overdrafts) {#handling-overdrafts}
+
+Um *overdraft* acontece quando o saldo de uma conta fica negativo. Há dois tipos:
+
+1. **Intencional.** O saldo negativo é um produto de crédito que o negócio oferece explicitamente, com limites e juros
+   (no Brasil, o cheque especial). É uma funcionalidade de negócio, não uma anomalia, e está majoritariamente fora do
+   escopo aqui. Provavelmente será modelado como uma conta de crédito separada (passivo para o usuário, recebível para o
+   operador) com saldo positivo.
+2. **Não intencional.** O saldo fica negativo mesmo com a política proibindo.
+
+Overdrafts não intencionais acontecem mesmo em sistemas corretos, porque o mundo externo não pede permissão: uma
+liquidação chega maior que a estimativa reservada, ou um estorno cai depois de os fundos já terem saído. A reserva de
+fundos reduz a janela para overdrafts, mas não a elimina.
+
+**Proibido não é o mesmo que irrepresentável.** É tentador codificar "o saldo nunca é negativo" no nível do tipo ou do
+armazenamento, como um inteiro sem sinal ou uma restrição `CHECK (balance >= 0)`. Mas quando somos forçados a aceitar um
+saldo negativo, um sistema que não consegue representá-lo ou vai quebrar no meio do fluxo, ou vai silenciosamente
+grampear o saldo em zero (inventando dinheiro), ou fará algo igualmente errado.
+
+Dito de outro modo, "saldo >= 0" é apenas uma invariante e vale a caixa de ferramentas de sempre: imponha em runtime ao
+autorizar transações, detecte violações pós-fato com monitoramento e conciliação — mas não force por construção. Quando
+um overdraft é detectado, é um sinal para investigar, não necessariamente um bug.
+
+Quando um overdraft acontece, precisamos contabilizá-lo e recuperar explicitamente, por exemplo, compensando contra
+depósitos futuros, solicitando o pagamento ou dando baixa — como um lançamento compensatório explícito em uma conta de
+despesa/perda.
+
+**Princípios envolvidos:**
+
+- **Nenhum dado inventado.** Grampear um saldo negativo em zero cunha dinheiro.
+- **Nenhuma confiança.** O mundo externo pode forçar um overdraft não importa o que suas verificações digam.
+
+### Idempotência {#idempotency}
+
+Em um sistema distribuído é impossível garantir entrega exatamente-uma-vez — qualquer chamada pode ser interrompida e
+não saberemos se ela chegou ao outro lado ou não. Para garantir que uma mensagem seja entregue, temos de repetir toda
+chamada dessas. Mas, ao fazê-lo, corremos o risco de entregá-la mais de uma vez, então seu processamento precisa ser
+idempotente — a mesma mensagem entregue duas vezes deve disparar o processamento uma vez só.
+
+1. **Prefira chaves explícitas.** Chaves de idempotência vs. idempotência derivada do negócio (por exemplo, deduplicar
+   pelo payload). Uma chave explícita costuma ser a solução mais simples e melhor — derivá-la dos dados é frágil, por
+   exemplo, é difícil dizer se duas transações com o mesmo valor são uma duplicidade ou duas operações legítimas. Ao
+   usar chaves de idempotência, garanta que elas tenham escopo de uma operação e de um cliente específicos.
+2. **Decida como os erros são reexecutados.** Quando uma chamada falhou na primeira vez, uma nova tentativa deve
+   relançar o erro armazenado ou disparar de novo o processamento? Costuma ser mais simples e fácil de raciocinar tratar
+   o erro como o resultado idempotente e reexecutá-lo. O cliente sempre pode tentar de novo com uma chave nova. Muito
+   depende da natureza dos erros — os permanentes (por exemplo, validação) devem ser reexecutados como estão, enquanto
+   os temporários (por exemplo, falha de rede) podem ser reprocessados.
+3. **Validar o payload repetido.** É boa prática garantir que uma chamada repetida carregue o mesmo payload da original.
+   Na prática isso fica caro e compra pouca confiança extra, ao custo de uma implementação mais complexa e menos
+   flexível (o chamador pode ter mudado a requisição por um bom motivo).
+4. **Em escala é difícil.** Construir idempotência confiável pode ser um empreendimento complexo, então dedique esforço
+   suficiente a isso. Além de talvez precisar deduplicar bilhões de requisições, você tem de acertar o comportamento sob
+   acesso concorrente (por exemplo, duas chamadas duplicadas chegando no mesmo milissegundo). Sua barreira de
+   idempotência precisa ser atômica.
+5. **Cuidado com janelas de tempo.** Você pode se sentir tentado a depender de uma janela de idempotência, por exemplo,
+   deduplicar apenas dentro de 24h. Isso simplifica muito a implementação (do contrário o volume de dados cresce para
+   sempre), mas ao custo de correção. Faça esse trade-off só se for absolutamente necessário, porque ele vai te
+   assombrar depois.
+6. **Teste as tentativas repetidas.** Uma das melhores abordagens é embutir um middleware genérico nos seus testes de
+   integração ou de sistema que repete automaticamente toda chamada.
+7. **Trate tentativas fora de ordem.** Seu sistema precisa continuar idempotente mesmo se já tiver avançado para um novo
+   estado — por exemplo, manter idempotente o bloqueio dos fundos mesmo que eles já tenham sido liberados.
+
+Idempotência importa dos dois lados — quando você faz chamadas e quando as recebe. Tenha isso em mente toda vez que
+consumir ou expor uma operação.
+
+::: {.callout-tip}
+## No Pix
+O Pix já traz sua chave de idempotência embutida: o **`EndToEndId` (E2EID)**, um identificador de 32 caracteres, único
+por ordem de pagamento, gerado pelo PSP do pagador e que acompanha a transação de ponta a ponta. Ele é a chave *explícita
+e com escopo* recomendada pela nota 1 **na perna PSP→SPI e interbancária**: reenvios da mesma ordem carregam o **mesmo
+E2EID**, então o SPI e os demais PSPs deduplicam por ele em vez de tentar adivinhar pela combinação valor+conta (que
+poderia ser dois Pix legítimos iguais). Atenção à fronteira: como o E2EID é gerado *pelo PSP*, ele ainda não existe no
+retry **app→PSP** (o duplo toque de Ana); essa perna precisa de uma **chave de idempotência do cliente**, que o PSP usa
+para mapear ambas as entregas ao mesmo E2EID. O
+E2EID também é a âncora para o resto do ciclo de vida — é ele que uma **Devolução** referencia. Como retries são
+inevitáveis nas mensagens do SPI, processar a liquidação precisa colapsar entregas duplicadas do mesmo E2EID em um único
+efeito, e a barreira que faz isso precisa ser atômica (nota 4).
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhum dado inventado.** Retries são inevitáveis, então o processamento deve colapsar entregas duplicadas em um
+  único efeito em vez de mover dinheiro duas vezes.
+
+### Resumabilidade total {#full-resumability}
+
+Um fluxo de dinheiro raramente acontece em um único passo. Um saque pode reservar fundos, rodar verificações de
+compliance, registrar a operação em um sistema externo e, por fim, liquidar. Uma sequência dessas se estende no tempo e
+pode morrer entre quaisquer dois desses passos, então a suposição segura é que morrerá: assuma falha a cada dois passos.
+Um fluxo, portanto, nunca pode presumir que roda até o fim de uma vez, e um fluxo pela metade sempre deve parar em um
+estado recuperável, nunca em um inconsistente.
+
+1. **Persista o progresso, não o mantenha em memória.** Modele o fluxo como uma máquina de estados explícita cujo estado
+   é armazenado de forma durável, e efetive a conclusão de cada passo antes de iniciar o próximo. Um reinício precisa
+   conseguir dizer exatamente onde o fluxo estava.
+2. **Algo precisa retomar fluxos travados.** Um condutor independente (um agendador, worker ou poller) precisa pegar
+   fluxos incompletos e empurrá-los adiante. Uma queda do orquestrador não pode abandonar um fluxo para sempre.
+3. **Todo passo precisa ser seguro para reexecutar.** Ao retomar, você pode reexecutar um passo que já aconteceu
+   parcialmente, então cada um precisa ser idempotente (ver idempotência).
+4. **Avance ou compense.** Efeitos externos não podem ser desfeitos com rollback. Uma vez que você chamou o mundo
+   externo, não dá para "des-chamar", e um rollback de banco de dados não vai desfazê-lo. Então ou você tenta avançar
+   até o fluxo concluir, ou, quando um passo posterior falha de vez, lança ações compensatórias para desfazer as
+   anteriores (o [padrão saga](https://microservices.io/patterns/data/saga.html)).
+
+Você pode usar um motor de execução durável (por exemplo, [Temporal](https://temporal.io/), [Camunda](https://camunda.com/), [Workflows4s](https://business4s.org/workflows4s/), [AWS Step Functions](https://aws.amazon.com/step-functions/)) ou fazer à
+mão sua própria máquina de estados persistente.
+
+::: {.callout-tip}
+## No Pix
+O cenário crítico do Pix é cair **depois de enviar a ordem ao SPI, mas antes de registrar a confirmação**. Você não pode
+simplesmente reenviar — isso arriscaria um pagamento em dobro. Como o passo é idempotente pelo `EndToEndId`, o reenvio
+com o mesmo E2EID é seguro, mas o correto ao retomar é **consultar o status daquela ordem** (o SPI é a fonte da verdade)
+antes de decidir avançar ou não. Modele o envio como uma máquina de estados persistida — `reservado → enviado ao SPI →
+aguardando confirmação → liquidado | rejeitado` — e deixe um poller retomar as ordens presas em "aguardando
+confirmação". Se um passo posterior falhar de vez após a liquidação já ter ocorrido, você não faz rollback: compensa com
+uma **Devolução** (a saga do Pix). É por isso que reserva de fundos, idempotência por E2EID e resumabilidade aparecem
+sempre juntas em um fluxo Pix bem construído.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhum dado perdido.** Uma queda no meio de um fluxo nunca pode perder o rastro do dinheiro em trânsito; o progresso
+  persistido é o que permite retomar e concluir o fluxo.
+- **Nenhum dado inventado.** Retomar reexecuta passos, então eles precisam reaplicar sem contar em dobro — o fluxo
+  conclui exatamente uma vez.
+
+## O mundo externo
+
+Interagir com o mundo externo — seja na forma de provedores terceiros (pagamentos, KYC, PLD/AML, bancos, custodiantes,
+etc.) ou serviços internos — é inevitável. Nosso trabalho é construir um sistema que permaneça correto por mais que
+essas dependências se tornem não confiáveis.
+
+### Consumindo APIs {#consuming-apis}
+
+Cedo ou tarde você terá de chamar a API de outra pessoa, por exemplo, um provedor de pagamento, um custodiante, um nó de
+blockchain ou um fornecedor de KYC. Você não controla o código dele, sua qualidade nem seu tempo no ar, então o padrão
+seguro é presumir que ele vai se comportar mal e construir defensivamente ao seu redor.
+
+1. **Não confie no schema.** A resposta nem sempre vai bater com o contrato que te deram: campos podem sumir, tipos
+   podem mudar, nulos podem aparecer onde não deveriam. Valide as partes importantes na fronteira e falhe de forma
+   barulhenta diante de qualquer coisa que você não esperava, para que dados malformados não vazem para dentro do
+   sistema. Ao mesmo tempo, nunca valide as partes de que você não precisa, pois isso pode causar quedas desnecessárias
+   quando um terceiro quebra o próprio contrato. E ele vai.
+2. **Espere engenharia imperfeita.** Tudo o que você considera prática de engenharia questionável vai aparecer com tempo
+   suficiente: tokens passados na URL, precisão perdida, códigos HTTP que não significam o que deveriam (um `200`
+   carregando um corpo de erro), paginação inconsistente, formatos de data personalizados. Não se frustre com isso;
+   trate como o trabalho, não como a exceção.
+3. **Todas as chamadas vão falhar.** Projete o sistema para lidar com a ausência de resposta. Retries e timeouts são
+   proteção necessária.
+4. **[Circuit breakers](https://martinfowler.com/bliki/CircuitBreaker.html) costumam ser opcionais.** São, em grande parte, uma cortesia para com um servidor sobrecarregado,
+   paga por você com complexidade adicional no lado do cliente. É razoável esperar que o servidor cuide da própria carga
+   e descarte requisições que não consegue servir. Dito isso, um circuit breaker também protege sua latência e seus
+   recursos finitos (threads, conexões, etc.), então use um quando for realmente necessário.
+5. **Atenção às cotas.** Limites de taxa e cotas de uso são fáceis de esquecer, mas podem ser fonte de quedas
+   desagradáveis no fim de semana. É bom fazer uma continha de guardanapo antes (volume esperado de chamadas contra os
+   limites do provedor) para descobrir antes de virar problema.
+6. **Armazene toda requisição e resposta.** Pode parecer exagero, mas pode ser um salva-vidas numa investigação quando
+   uma API externa começa a retornar algo que jamais deveria. Persista o que você enviou e o que voltou, de forma
+   estruturada e consultável (por exemplo, uma tabela no [Redshift](https://aws.amazon.com/redshift/)). Isso também será sua trilha de auditoria e sua prova
+   quando o comportamento do provedor for contestado, e seu material para reprocessamento depois de um bug.
+7. **Busque redundância de provedores.** Para as partes mais críticas, considere usar mais de um provedor para o mesmo
+   propósito. Você nunca pode confiar totalmente no provedor, então quando o risco é máximo isso pode significar validar
+   os dados contra múltiplas fontes (por exemplo, dois nós de blockchain) ou ter um banco parceiro, custodiante de
+   cripto ou fornecedor de KYC reserva. Essa abordagem é caríssima (em desenvolvimento, tarifas e complexidade), mas
+   pode ser necessária para atingir o nível de confiabilidade desejado.
+8. **Não confie no sandbox.** Se um provedor te dá acesso de teste/sandbox, já é um bom sinal. Esses ambientes servem
+   para cenários básicos, mas costumam divergir muito significativamente do ambiente de produção. Esteja preparado para
+   testar em produção (por exemplo, com *canary releases* e uso controlado de pequeno impacto).
+
+::: {.callout-tip}
+## No Pix
+Um sistema Pix conversa com várias APIs do arranjo, e todas merecem esse tratamento defensivo: o **DICT** (consulta e
+gestão de chaves), a mensageria do **SPI** (liquidação) e a **API Pix** (Cobrança/QR Code) — tudo trafegando pela RSFN
+(Rede do Sistema Financeiro Nacional). "Não confie no schema" vale, por exemplo, para a resposta de consulta de uma
+chave no DICT: valide na fronteira os campos que você realmente usa (tipo de chave, conta, ISPB do dono) e falhe alto se
+algo vier fora do contrato. E, como o arranjo tem regras de disponibilidade e limites de consulta ao DICT, a nota 5
+(cotas) é literal aqui.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** O código, o schema e a disponibilidade do provedor estão todos fora do seu controle, então
+  verifique fatos contra fontes independentes e valide tudo na fronteira.
+- **Nenhum dado perdido.** Persistir toda requisição e resposta mantém um registro contra o qual você pode conciliar e a
+  partir do qual pode reprocessar.
+
+### Lidando com webhooks {#handling-webhooks}
+
+Webhooks são a forma mais comum de receber sinais de sistemas externos, mas processá-los com segurança não é trivial.
+Embora foquemos aqui em webhooks (endpoints HTTP que você expõe, chamados por um sistema externo com um payload definido
+por ele), muitos dos pontos também se aplicam a outros meios de transporte.
+
+1. **Não presuma ordenação.** Mensagens podem chegar fora de ordem ou carregar dados defasados, então o último webhook
+   que você recebeu não é necessariamente a verdade mais recente. Não sobrescreva cegamente seu estado com o que acabou
+   de chegar; concilie contra o que você já sabe (por exemplo, consultando a API pelo estado atual).
+2. **Não presuma validade.** Webhooks podem vir de uma parte secundária do sistema do emissor e carregar dados
+   defasados ou transformados de forma imprópria. Uma boa prática é ignorar o conteúdo do webhook e usá-lo apenas como
+   gatilho para consultar a API pelo estado autoritativo. Cuidado: a API pode ser eventualmente consistente e ficar
+   atrás do webhook, então uma consulta logo após o gatilho pode ainda retornar o estado antigo — esteja pronto para
+   repetir.
+3. **Não presuma entrega.** Webhooks vão se perder cedo ou tarde, por mais forte que seja a política de reentrega
+   prometida pelo emissor. Você tem de estar preparado para lidar com um webhook faltante, o que normalmente significa
+   um processo independente que corrige a completude dos seus dados. Ver conciliação.
+4. **Não presuma entrega única.** O mesmo webhook será entregue mais de uma vez. O processamento precisa ser
+   idempotente. Ver idempotência.
+5. **Confirme rápido, processe de forma assíncrona.** Retorne um 2xx assim que tiver armazenado de forma durável o
+   evento cru, e faça o trabalho de verdade de forma assíncrona. Se você processar em linha e for lento, o emissor pode
+   dar timeout e repetir, multiplicando sua carga.
+6. **Persista o payload cru.** Armazene o que você recebeu literalmente antes de agir sobre ele. Isso não só torna o
+   processamento mais confiável, como também serve de trilha de auditoria do que o provedor de fato disse. Também
+   permite reprocessar a mensagem depois de um bug sem pedir ao provedor para reenviar.
+7. **Verifique quem chamou.** O mecanismo usual é o emissor anexar uma assinatura do payload, para que você verifique
+   que a mensagem realmente veio dele. Mais comumente é um [HMAC](https://datatracker.ietf.org/doc/html/rfc2104) computado com um segredo compartilhado; menos comumente,
+   uma assinatura assimétrica cuja metade pública é publicada. Uma ressalva: verifique a assinatura sobre os *bytes
+   crus* que você recebeu, não sobre um payload reserializado (reserializar muda os bytes e quebra a assinatura). Mesmo
+   assim, prefira não confiar no conteúdo (ver ponto 2).
+
+Há um tema recorrente aqui: não confie no webhook. Trate-o como uma pista de que *algo* aconteceu, não como um relato
+confiável de *o que* aconteceu.
+
+::: {.callout-tip}
+## No Pix
+Do lado do recebimento (Pix Cobrança), o PSP notifica o recebedor de que um Pix caiu — a notificação de "Pix recebido".
+Aplique aqui o roteiro à risca: **não confie no conteúdo da notificação**; use-a como gatilho para **consultar a API Pix
+pelo estado autoritativo**, buscando pelo `txid` (da cobrança) ou pelo `EndToEndId`. Isso protege contra reordenação,
+duplicidade (a notificação virá mais de uma vez — deduplicar pelo E2EID) e perda (um poller de conciliação preenche as
+lacunas). Sobre "verifique quem chamou": diferente do HMAC comum, as chamadas entre PSPs e a API Pix usam **[mTLS](https://en.wikipedia.org/wiki/Mutual_authentication)** com
+certificados [ICP-Brasil](https://www.gov.br/iti/pt-br/assuntos/icp-brasil)/RSFN — a autenticação é mútua no nível do transporte, mas isso ainda não é motivo para confiar
+no *conteúdo* (ponto 2).
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** Um webhook é uma pista não autenticada, não ordenada, possivelmente perdida, possivelmente
+  duplicada; verifique a fonte e confirme o estado real contra a API.
+- **Nenhum dado perdido.** Persista o evento cru e reforce a entrega com conciliação, para que um webhook descartado não
+  signifique um fato descartado.
+
+### Notificando de forma confiável (Outbox e CDC) {#notifying-reliably-outbox-and-cdc}
+
+Muitas vezes é um requisito avisar o mundo externo sobre mudanças no nosso sistema de forma confiável — publicando um
+evento no [Kafka](https://kafka.apache.org/), disparando uma chamada de webhook, ou por uma infinidade de outros meios. A parte problemática é o
+_confiável_: temos de garantir entrega ao-menos-uma-vez, e esses canais não se encaixam no modelo de transacionalidade
+usual em que costumamos confiar. Sem transacionalidade, arriscamos:
+
+- **Publicar e então dar rollback.** A publicação teve sucesso, mas não recebemos a resposta por um problema de rede,
+  então damos rollback no estado do nosso sistema.
+- **Mudança de estado sem publicação.** A publicação genuinamente falhou, mas não demos rollback.
+
+A resposta de manual é um [commit em 2 fases](https://en.wikipedia.org/wiki/Two-phase_commit_protocol)/transação distribuída, mas raramente é usada por causa da complexidade e da
+falta de um bom jeito de padronizar e reusar a abordagem. As opções práticas:
+
+1. **[Padrão Outbox](https://microservices.io/patterns/data/transactional-outbox.html).** Um evento de "publicação" é escrito transacionalmente (junto com a mudança de estado) em um
+   repositório dedicado, e de lá é processado de forma confiável (pega uma linha, tenta até ter sucesso). Em outras
+   palavras, salvamos de forma confiável a "intenção de publicar" e a processamos depois.
+2. **[Change Data Capture (CDC)](https://en.wikipedia.org/wiki/Change_data_capture).** Um mecanismo automatizado que detecta mudanças efetivadas no banco (tipicamente lendo
+   o log de escrita/replicação) e as transforma em um fluxo de eventos. Como lê direto do log, toda mudança efetivada é
+   capturada e nada é perdido, sem nenhum código de publicação explícito na aplicação. Ferramentas como [Debezium](https://debezium.io/) ou [AWS DMS](https://aws.amazon.com/dms/) implementam isso de prateleira. O trade-off é acoplamento e peso operacional: o CDC cru emite eventos com o
+   formato das linhas das suas tabelas e precisa de pós-processamento para não vazar o schema interno aos consumidores.
+3. **Listen-to-yourself.** Inverta a ordem e publique o evento primeiro (por exemplo, no Kafka), depois reconstrua nosso
+   próprio estado a partir dele.
+4. **Event sourcing.** O log de eventos já vive no banco, então publicar é só uma questão de ler dele (ver Event
+   sourcing).
+
+Qualquer que seja o mecanismo escolhido, a entrega é ao-menos-uma-vez — o *relay* ou conector pode publicar e então cair
+antes de registrar que publicou, reenviando ao reiniciar. Consumidores, portanto, precisam ser idempotentes e deduplicar
+por um id de evento estável (ver idempotência).
+
+**Princípios envolvidos:**
+
+- **Nenhum dado perdido.** Uma mudança efetivada precisa chegar de forma confiável aos seus consumidores; o outbox (ou o
+  log) garante que a notificação não pode ser descartada só porque um passo separado de publicação falhou.
+- **Nenhum dado inventado.** Nunca publicamos uma notificação para uma mudança que não foi efetivada, e entregas
+  duplicadas colapsam em um único efeito.
+
+### Conciliação {#reconciliation}
+
+Qualquer sistema que depende de dados externos está sujeito a *data drift* — uma situação em que um sistema não bate com
+o outro. Por exemplo, você pode perder um webhook, ou uma transação pode ser lançada no razão mas não refletida no
+sistema do provedor externo. Em todos esses casos precisamos de conciliação: um processo que alinha os dois sistemas.
+Embora digamos "dois", na prática podem ser mais, por exemplo, razão, processador de pagamento e banco, mas isso não
+muda nada na forma de abordar o problema.
+
+1. **Cadência.** Dependendo do contexto e das restrições, a conciliação pode ser feita de hora em hora, diariamente,
+   mensalmente ou até anualmente.
+2. **Natureza do drift.** O dado pode estar faltando (caso fácil) ou diferente (por exemplo, a mesma transação com
+   valores distintos, muito mais complicado de resolver). O timing também importa muito: se a liquidação acontece em
+   T+3, os registros ficarão não conciliados por 3 dias — essa lógica deve ser incorporada ao processo para não
+   alertarmos nesses casos.
+3. **Algoritmo de casamento.** Saber o que comparar entre os dois sistemas é a parte difícil. Normalmente você quer
+   persistir o id do provedor externo dentro do seu sistema para que o casamento seja direto. Se não for o caso,
+   algoritmos heurísticos entram em cena (por exemplo, casar por valor e tempo).
+4. **Um-para-muitos.** Em alguns casos você terá de conciliar múltiplos registros de um lado com um do outro, por
+   exemplo, uma única transferência de liquidação pode cobrir várias transações.
+5. **Alinhar não é trivial.** Nem é preciso dizer que não podemos simplesmente sobrescrever os dados para deixar a
+   conciliação feliz. Cada discrepância encontrada deve ser entendida e corrigida por meio de suporte de primeira
+   classe, por exemplo, um registro de correção, reprocessamento de dados de webhook, etc.
+
+::: {.callout-tip}
+## No Pix
+O PSP concilia contra a fonte da verdade do arranjo: os **extratos de liquidação do SPI** e o saldo da sua **Conta PI**
+no BCB. Como a liquidação é T+0, o drift esperado é pequeno e uma cadência intradiária faz sentido — mas os casos de
+**Devolução** e agendamento criam registros que ficam legitimamente "abertos" por um tempo, e isso deve estar embutido
+no processo para não gerar alertas falsos (nota 2). O `EndToEndId` é o id externo que você persiste para casar direto
+(nota 3), evitando heurística por valor+tempo. E o caso um-para-muitos (nota 4) aparece quando você concilia lançamentos
+individuais do seu razão contra movimentos agregados da Conta PI.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** A conciliação é como verificamos entre fontes independentes em vez de acreditar que uma delas
+  sozinha está certa.
+- **Nenhum dado perdido.** É a rede de segurança que pega o fato descartado — o webhook perdido, a transferência não
+  liquidada — antes que ele desapareça de vez.
+
+## Controles e acesso
+
+Os padrões até aqui mantêm os *dados* corretos. Mas um sistema de dinheiro também tem de restringir quem pode agir sobre
+ele e provar, depois do fato, que o processo foi seguido. É aqui que o princípio **Nenhuma confiança** se volta para
+dentro: seus próprios operadores e engenheiros também são uma fronteira de confiança, assim como provedores externos e
+componentes internos. Um auditor examina esses controles ao lado dos próprios livros.
+
+### Segregação de funções e quatro olhos {#segregation-of-duties-and-four-eyes}
+
+Algumas ações são sensíveis demais para deixar a cargo de uma única pessoa, por mais confiável que ela seja. Dividi-las
+é o controle mais antigo das finanças, e assume duas formas relacionadas: **segregação de funções** (ninguém sozinho é
+dono de um processo inteiro) e **quatro olhos / maker-checker** (uma ação específica precisa de uma segunda pessoa para
+aprová-la antes de ter efeito, também chamada de controle dual).
+
+1. **Aplica-se a operações de dinheiro.** Saques grandes ou manuais, correções manuais no razão, movimentações de
+   tesouraria e de *cold wallet*, mudar uma tabela de tarifas ou um limite — qualquer coisa que possa mover ou
+   distorcer fundos é candidata a um segundo aprovador.
+2. **Aplica-se à engenharia também.** Fazer *merge* de código, publicar em produção e mudar infraestrutura são ações
+   sensíveis em um sistema de dinheiro. Por isso normalmente exigimos revisão e aprovação.
+3. **A aprovação faz parte da trilha.** Registre quem solicitou, quem aprovou e que os dois eram pessoas diferentes —
+   do contrário o controle é improvável (ver [Auditorias e trilhas de auditoria](#audits-and-audit-trails)).
+4. **O "quebra-vidro" precisa de um caminho.** Emergências acontecem, e um controle rígido convida as pessoas a
+   contorná-lo. Ofereça uma exceção (*break-glass*) explícita e fortemente auditada, em vez de forçar uma porta dos
+   fundos.
+
+::: {.callout-tip}
+## No Pix
+Boa parte dos controles do Pix é regulatória e precisa de suporte operacional de primeira classe. O BCB exige a **gestão
+de limites** por usuário (limites por transação e por período, com o **período noturno** — das 20h às 6h, com início
+ajustável pelo usuário para 20h ou 22h — tendo limite reduzido, de R$ 1.000 para PF, como controle antifraude) e a
+**marcação de fraude no DICT** (que recai sobre o CPF/CNPJ envolvido). Elevar um limite a pedido do
+cliente, abrir uma solicitação de devolução via MED ou reverter uma marcação são exatamente o tipo de ação manual e
+sensível que se beneficia de maker-checker e de registro na trilha: quem pediu, quem aprovou, e por quê.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** Um único ator interno — mesmo confiável — não é autoridade suficiente para uma ação sensível ou
+  irreversível.
+
+### Controle de acesso {#access-control}
+
+Quem pode fazer o quê é, em si, parte do estado do sistema, e muda ao longo do tempo à medida que pessoas entram, mudam
+de time e saem. Não basta saber quem pode tocar nos fundos hoje; auditores também perguntarão como essa pessoa passou a
+ter esse acesso.
+
+1. **Menor privilégio.** Conceda a cada ator — humano ou serviço — o mínimo necessário, e prefira papéis (RBAC) a
+   concessões por pessoa, para que o acesso permaneça revisável.
+2. **Mudanças de autorização precisam de trilha.** Conceder ou revogar uma capacidade é um evento sensível, exatamente
+   como uma movimentação de dinheiro: registre o que mudou, quem mudou e por quê. A disciplina de trilha de auditoria do
+   razão vale aqui também (ver [Auditorias e trilhas de auditoria](#audits-and-audit-trails)).
+3. **Revise o acesso periodicamente.** Permissões ficam desatualizadas ou imprecisas. Revisões de acesso agendadas
+   (recertificação) são a verificação pós-fato (ver [Invariantes](#invariants)) aplicada ao acesso, para pegarmos o
+   drift.
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** Acesso permanente se acumula silenciosamente; menor privilégio e revisão periódica são o que o
+  mantêm sob controle.
+
+### A trilha de mudanças (SDLC) {#the-change-trail-sdlc}
+
+Em um ambiente regulado normalmente temos de auditar como o código chega à produção e, assim, saber quem revisou uma
+mudança, quem a aprovou, quando foi para o ar, e assim por diante. Seus sistemas de controle de versão e CI/CD são de
+grande ajuda aqui, se bem feitos.
+
+1. **O controle de versão é o registro.** O histórico de commits atribui cada mudança a um autor e a amarra — via
+   revisão e tickets vinculados — ao motivo pelo qual foi feita (é o usual *o quê / quem / por quê* que uma trilha de
+   auditoria exige). Proteja-o à altura, com commits assinados, branches protegidas e proibição de *force-push* em
+   histórico compartilhado.
+2. **Revisões e pipelines precisam ser obrigatórios.** Revisões exigidas (não opcionais), *status checks* e "nada de
+   push direto na main" são cruciais, porque disciplina não cola em auditoria.
+3. **Deploys são rastreáveis.** Qual versão está rodando, quem a publicou e quando devem ser reconstruíveis — é isso que
+   permite amarrar um incidente à mudança que o causou.
+
+**Princípios envolvidos:**
+
+- **Nenhum dado perdido.** A história de como o próprio sistema veio a existir faz parte da trilha tanto quanto a
+  história do dinheiro que ele guarda.
+- **Nenhuma confiança.** O sistema impõe os controles de entrega — não depende de as pessoas lembrarem de segui-los.
+
+## Testes
+
+Testes importam em todo lugar, mas em um sistema de dinheiro importam mais. A dificuldade é que normalmente você não
+consegue enumerar as saídas esperadas — o espaço de sequências de operações é grande demais e as falhas interessantes
+vivem nas combinações. As abordagens abaixo são formas de ganhar confiança na correção do nosso sistema. Trate como um
+cardápio de restaurante do qual você escolhe as técnicas de maior impacto para o seu sistema.
+
+1. **Testes baseados em propriedades.** Em vez de afirmar saídas específicas, você afirma que uma propriedade vale para
+   qualquer entrada gerada. É um encaixe natural para invariantes ou matemática do dinheiro. O framework gera os casos
+   estranhos que você não pensaria em escrever à mão.
+2. **Verificações de invariante entre passos.** Ao gerar uma sequência de operações, não afirme as invariantes só no
+   fim — afirme-as após cada passo. Isso é impossível de fazer manualmente em escala, então você precisaria de um
+   arcabouço de teste mais sofisticado que injete as asserções automaticamente.
+3. **Teste generativo de idempotência.** Como toda operação que toca o mundo externo precisa ser idempotente (ver
+   idempotência), você pode fazer disso uma propriedade do seu sistema. Com abordagem parecida com a acima, você pode
+   repetir automaticamente todas as operações declaradas e afirmar a ausência de impacto no sistema a partir da segunda
+   chamada.
+4. **Injeção de queda e retomada.** Fluxos longos precisam sobreviver a morrer entre quaisquer dois passos (ver
+   resumabilidade total), e podemos testar exatamente isso seguindo a abordagem usual: injetar uma falha em cada passo.
+5. **Testes de ida e volta (*round-trip*).** Codifique e decodifique, serialize e desserialize, converta e reconverta —
+   e afirme que você chega onde começou (ou dentro de uma tolerância conhecida). É um jeito rápido de pegar perda de
+   precisão nas fronteiras e bugs de serialização nos seus tipos de dinheiro e moeda. Combina muito bem com geração
+   automática de dados.
+6. **Testes golden.** Fixe a saída de um cálculo ou projeção (uma decomposição de tarifas, um extrato, um relatório) a
+   um resultado esperado armazenado, para que qualquer mudança não intencional apareça como um diff. Útil para as
+   computações cabeludas e difíceis de raciocinar, em que você confia mais em um resultado revisado uma vez do que em
+   uma asserção recém-escrita.
+7. **Testes de compatibilidade retroativa.** Eventos e registros armazenados vivem por anos, e o código de hoje precisa
+   continuar lendo o que o código antigo escreveu (ver event sourcing). Mantenha um corpus de payloads reais em formato
+   antigo e afirme que o código atual ainda os desserializa e projeta corretamente — é isso que impede que uma mudança
+   de schema quebre silenciosamente a história.
+8. **Testes em produção.** Certa confiança só é obtida contra a coisa real. Sandboxes de provedores divergem
+   significativamente da produção (ver consumindo APIs), então a prova final de que uma integração funciona muitas vezes
+   tem de acontecer ao vivo — via *canary release*, um rollout controlado de pequeno raio de impacto, ou transações
+   sintéticas que empurram continuamente pequenos valores reais pelo sistema como um *health check*. A ressalva
+   específica do dinheiro é que esses são movimentos reais: um teste em produção move dinheiro de verdade, então precisa
+   passar pelo mesmo razão, conciliação e trilha de auditoria que todo o resto, ser claramente marcado e ser limpo pela
+   maquinaria normal de correção/estorno — nunca uma porta dos fundos que burla os livros.
+
+::: {.callout-tip}
+## No Pix
+"Não confie no sandbox" tem um contraponto no Pix: o BCB mantém um **ambiente de homologação** do SPI e do DICT que
+participantes usam para certificação antes de entrar em produção. Ele é indispensável, mas — como todo sandbox — não
+reproduz a carga, a concorrência nem todos os cenários de erro da produção. Combine-o com transações sintéticas de
+pequeno valor em produção (por exemplo, um Pix de R$ 0,01 entre contas internas de monitoramento) que passem pelo mesmo
+razão e conciliação, claramente marcadas e limpas via Devolução — nunca por um atalho fora dos livros.
+:::
+
+**Princípios envolvidos:**
+
+- **Nenhuma confiança.** Testes são como você verifica que os padrões de fato valem, em vez de presumir que sim; a
+  invariante é o oráculo, não um valor que você por acaso esperava.
+- **Nenhum dado inventado.** Reexecutar operações e injetar falhas prova que retries e recuperação não contam em dobro
+  nem cunham dinheiro.
+- **Nenhum dado perdido.** Testes de ida e volta e de compatibilidade retroativa provam que precisão e história
+  sobrevivem às fronteiras e à passagem do tempo.
+
+## Apêndice A: Conheça seu domínio
+
+A parte mais difícil de entrar em fintech muitas vezes não é o código, mas o vocabulário e os conceitos por trás dele. A
+área é cheia de palavras que soam comuns mas significam algo preciso, e de siglas que todo mundo ao seu redor usa sem
+nunca expandir.
+
+Ressalvas: termos que um leigo já conhece (depósito, saque, transferência, moeda) são pulados, assim como os cantos
+exóticos que você aprende quando chega lá. Tentamos focar nos termos mais importantes. Onde o manual já cobre um conceito
+adequadamente, a entrada linka para aquela seção em vez de repeti-la. Mantemos vários termos em inglês por serem de uso
+corrente no mercado.
+
+### Contabilidade e livros-razão
+
+- **Ledger (livro-razão)** — o sistema de registro das movimentações de dinheiro; a fonte da verdade de onde os saldos
+  são derivados (ver [Partidas dobradas](#double-entry-bookkeeping)).
+- **Razão geral vs. razão auxiliar (*general ledger* vs. *sub-ledger*)** — o livro único consolidado vs. um livro
+  detalhado de um domínio (por exemplo, um por usuário ou produto) que é consolidado nele.
+- **Débito / crédito** — os dois lados de todo lançamento. Qual deles *aumenta* uma conta depende do tipo da conta, não
+  de "dinheiro entrando vs. saindo" (ver [Partidas dobradas](#double-entry-bookkeeping)).
+- **Lançamento / efetivação (*posting*)** — registrar um lançamento no razão; "efetivado" significa registrado e, por
+  convenção, imutável.
+- **Plano de contas (*chart of accounts*)** — um catálogo das contas em que se pode lançar; um único sistema pode ter
+  vários (por exemplo, por entidade legal, por livro ou por norma de reporte).
+- **Tipo de conta** — ativo / passivo / patrimônio líquido (mais receita / despesa), para que a **equação contábil** se
+  sustente e cada conta tenha um lado definido em que aumenta (ver [Partidas dobradas](#double-entry-bookkeeping)).
+- **Recebível / pagável (*receivable* / *payable*)** — dinheiro devido *a* você / dinheiro devido *por* você.
+- **IOU** — informalmente, um passivo: um registro de que você deve dinheiro a alguém. O saldo de um usuário em uma
+  plataforma custodial é um IOU da plataforma para o usuário, e é por isso que fica no lado do passivo dos livros.
+- **[Regime de competência](https://pt.wikipedia.org/wiki/Regime_de_compet%C3%AAncia) vs. de caixa (*accrual* vs. *cash basis*)** — reconhecer o dinheiro quando é ganho ou devido
+  vs. quando de fato se move.
+- **[Balancete](https://pt.wikipedia.org/wiki/Balancete) (*trial balance*)** — uma verificação de que o total de débitos iguala o total de créditos nos livros.
+- **Conta transitória / de trânsito (*suspense / clearing account*)** — uma conta temporária para dinheiro em trânsito
+  ou ainda não atribuível. Evite chamá-la de "conta de compensação": no [COSIF](https://www.bcb.gov.br/estabilidadefinanceira/cosif), *contas de compensação* são
+  extrapatrimoniais (avais, garantias, contingências); reserve o termo "compensação" para o *processo* de *clearing*.
+- **Baixa (*write-off*)** — contabilizar como perda um saldo que você não espera mais recuperar (ver
+  [Lidando com saldos negativos](#handling-overdrafts)).
+- **Mistura de recursos (*commingling*)** — misturar recursos da empresa com os dos usuários; um alerta regulatório (ver
+  [Auditorias e trilhas de auditoria](#audits-and-audit-trails)).
+- **Quebra de conciliação (*reconciliation break*)** — uma única discrepância não casada revelada pela
+  [conciliação](#reconciliation).
+
+### Dinheiro e câmbio (FX)
+
+- **Money (como tipo)** — um valor pareado com uma moeda (ver [Tratamento de moedas](#currency-handling)).
+- **Unidades menores (*minor units*)** — a menor unidade indivisível de uma moeda; valores costumam ser armazenados como
+  inteiros dessas (€12,34 → `1234`) (ver [Tratamento de precisão](#precision-handling)).
+- **Ponto-base (bp / "bip")** — um centésimo de por cento (0,01%); tarifas e taxas são rotineiramente cotadas assim.
+- **Nocional (*notional*)** — o valor de face sobre o qual um cálculo se baseia, que pode ser muito maior que o caixa que
+  de fato troca de mãos.
+- **Fiduciária vs. cripto** — moeda emitida pelo Estado vs. ativo nativo de blockchain.
+- **Stablecoin** — um token atrelado a um ativo de referência, normalmente uma moeda fiduciária como o dólar.
+- **Atrelado / encapsulado / com ponte (*pegged* / *wrapped* / *bridged*)** — representações conectadas a um ativo
+  subjacente, mas *não* equivalentes a ele (ver [Tratamento de moedas](#currency-handling)).
+- **Compra / venda / spread (*bid* / *ask* / *spread*)** — o preço de compra, o de venda e o intervalo entre eles.
+- **Taxa mid-market** — o ponto médio entre compra e venda; uma referência, não um preço a que você de fato negocia (ver
+  [Taxas de câmbio (FX)](#fx-rates)).
+- **Taxa de referência** — uma taxa usada para valoração e equivalência (valor de posições, base de imposto), não para
+  uma negociação real (ver [Taxas de câmbio (FX)](#fx-rates)).
+- **Marcação a mercado (*mark-to-market*)** — reavaliar uma posição à taxa de mercado atual em vez do preço a que foi
+  adquirida.
+
+### Transações, tempo e liquidação
+
+- **Data de valor / data de lançamento / data de liquidação** — quando aconteceu / quando registramos / quando o
+  dinheiro de fato se moveu (ver
+  [Data de valor vs. data de lançamento vs. data de liquidação](#value-time-vs-booking-time-vs-settlement-time)).
+- **T+X** — algo (por exemplo, a liquidação) acontece X dias úteis após a data de valor (por exemplo, T+2).
+- **Compensação vs. liquidação (*clearing* vs. *settlement*)** — acordar quem deve o quê vs. de fato transferir o
+  dinheiro.
+- **Horário de corte (*cut-off*)** — o prazo diário após o qual uma transação rola para a próxima janela de liquidação.
+- **Float** — dinheiro que, no meio de uma transferência, parece existir nos dois sistemas ao mesmo tempo (ou em
+  nenhum).
+- **Netting (compensação por saldo)** — abater muitas obrigações em uma única transferência líquida em vez de liquidar
+  cada uma bruta.
+- **Retroação (*backdating*)** — atribuir uma data de valor anterior à data de lançamento (ver
+  [Data de valor vs. data de lançamento vs. data de liquidação](#value-time-vs-booking-time-vs-settlement-time)).
+- **Estorno / correção** — anular um lançamento por completo, como se nunca tivesse acontecido economicamente, vs.
+  contabilizar a diferença entre o que foi registrado e o que deveria ter sido (ver
+  [Estornos e correções](#reversals-and-corrections)).
+
+### Pagamentos, trilhos e cartões
+
+- **Trilho de pagamento (*payment rail*)** — a rede subjacente por onde um pagamento trafega (SEPA, SWIFT, ACH, redes de
+  cartão, uma blockchain — e, no Brasil, o Pix, o TED e o boleto).
+- **IBAN / SWIFT / SEPA / ACH / FPS / CHAPS / wire** — identificadores e redes para mover moeda fiduciária entre bancos.
+- **Ordenante / beneficiário (*originator* / *beneficiary*)** — quem envia / quem recebe uma transferência (também
+  pagador / recebedor).
+- **PSP (prestador de serviços de pagamento)** — um fornecedor que te conecta a um ou mais trilhos.
+- **Conta nostro / vostro** — "nosso dinheiro no banco deles" / "o dinheiro deles no nosso"; as contas que fazem as
+  transferências entre bancos funcionarem.
+- **Conta omnibus** — uma conta agrupada que mantém os recursos de muitos usuários juntos, com saldos por usuário
+  controlados internamente. Agrupamento legítimo, ao contrário da mistura de recursos.
+- **Conta FBO ("*for benefit of*")** — uma conta que uma empresa mantém em benefício de seus usuários.
+- **Sweep (varredura)** — mover saldos automaticamente entre contas em uma agenda (por exemplo, para *cold storage* ou
+  uma conta que rende juros).
+- **Chargeback** — um estorno forçado de um pagamento com cartão, iniciado pelo banco do portador.
+- **Emissor / credenciador (*issuer* / *acquirer*)** — o banco do portador do cartão / o banco do lojista.
+- **Interchange (tarifa de intercâmbio)** — a tarifa que o credenciador paga ao emissor em cada transação de cartão; o
+  grosso do custo de processamento de cartão.
+- **Autorização vs. captura** — colocar um bloqueio sobre os fundos vs. de fato cobrá-los; a versão do mundo dos cartões
+  para a [reserva de fundos](#funds-reservation).
+- **Dunning (régua de cobrança)** — o processo de tentar-de-novo-e-notificar para recuperar um pagamento recorrente que
+  falhou.
+
+### Negociação e mercados
+
+- **Livro de ofertas (*order book*)** — a lista ao vivo de ordens de compra (*bid*) e venda (*ask*) pendentes em cada
+  nível de preço.
+- **Ordem a mercado vs. limitada** — executar agora ao melhor preço disponível (consome liquidez) vs. só a um preço
+  definido ou melhor (fica no livro, fornece liquidez).
+- **Maker / taker** — o *maker* adiciona uma ordem em repouso ao livro, o *taker* cruza o spread e remove uma; as
+  tarifas costumam diferir.
+- **Slippage (derrapagem)** — a diferença entre o preço esperado e o preço de fato executado.
+- **Liquidez / profundidade** — quanto pode ser negociado antes de o preço se mover; livros rasos se movem mais.
+- **Spot (à vista)** — comprar ou vender o próprio ativo para entrega imediata.
+- **Derivativo** — um contrato cujo valor deriva de um ativo subjacente em vez do próprio ativo.
+- **Futuros / perpétuo (*perp*)** — um contrato para negociar em data futura / um sem vencimento, mantido perto do spot
+  por uma *funding rate*.
+- **Funding rate** — pagamento periódico entre comprados e vendidos que amarra o preço de um perp ao índice.
+- **Comprado / vendido (*long* / *short*)** — uma posição que lucra quando o preço sobe / cai.
+- **Alavancagem / margem** — controlar uma posição maior que seu capital / a garantia depositada para abri-la e
+  mantê-la.
+- **Liquidação forçada (*liquidation*)** — o fechamento forçado de uma posição quando sua margem cai abaixo do requisito
+  de manutenção.
+- **Haircut (deságio)** — um desconto aplicado ao valor da garantia para amortecer variações de preço.
+- **Contraparte** — o outro lado de uma negociação ou contrato; "risco de contraparte" é o risco de ela não cumprir.
+- **AUM / AUC** — ativos sob gestão (ativos de clientes que a plataforma gere ativamente, geralmente sob mandato
+  remunerado) vs. ativos sob custódia (ativos de clientes que ela apenas guarda). As mesmas posições podem ser um, o
+  outro, ou ambos.
+
+### Custódia e cripto
+
+- **Custódia** — quem controla os ativos: autocustódia (o usuário guarda as chaves) vs. custodial (a plataforma ou um
+  custodiante as guarda).
+- **Carteira quente / fria (*hot* / *cold wallet*)** — chaves mantidas online para acesso rápido vs. mantidas offline
+  por segurança.
+- **Chave privada / chave pública / endereço** — o segredo que autoriza o gasto / seu identificador público derivado /
+  onde os fundos são recebidos.
+- **Seed phrase** — o backup legível por humanos que reconstrói as chaves de uma carteira.
+- **Multisig / MPC** — exigir várias chaves (ou frações de chave) para autorizar uma transferência, para que nenhum
+  dispositivo sozinho mova fundos.
+- **Gas / taxa de rede** — a taxa paga para incluir uma transação em uma blockchain.
+- **Confirmação / finalidade** — um bloco construído sobre o que contém sua transação / o ponto a partir do qual ela não
+  pode mais ser revertida. Mais confirmações = mais finalidade.
+- **Reorg** — uma reorganização de blockchain que pode desfazer transações recém-confirmadas; a razão de a finalidade
+  não ser instantânea.
+- **Mempool** — o conjunto de transações pendentes esperando para serem incluídas em um bloco.
+- **Modelo [UTXO](https://en.wikipedia.org/wiki/Unspent_transaction_output) vs. de conta** — o estilo Bitcoin "gaste moedas inteiras, receba troco" vs. o estilo Ethereum de saldos
+  correntes; os dois exigem contabilidades diferentes.
+- **Token vs. moeda (*coin*)** — um ativo emitido sobre uma rede (por exemplo, um ERC-20) vs. o ativo nativo de uma rede
+  (BTC, ETH).
+- **Poeira (*dust*)** — um valor tão pequeno que a taxa de rede para movê-lo excede seu valor.
+- **Lista branca de endereços (*whitelisting*)** — restringir saques a um conjunto de endereços pré-aprovados.
+
+### Compliance e regulação
+
+- **KYC** — *Know Your Customer* (conheça seu cliente); verificar a identidade de um usuário.
+- **PLD-FT / AML-CFT** — Prevenção à Lavagem de Dinheiro e ao Financiamento do Terrorismo; controles para detectar e
+  prevenir recursos ilícitos.
+- **Triagem de sanções (*sanctions screening*)** — checar as partes contra listas de entidades sancionadas.
+- **PEP (Pessoa Exposta Politicamente)** — uma categoria de cliente de maior risco que exige diligência extra.
+- **Origem de recursos / patrimônio (*SoF* / *SoW*)** — evidência de onde veio o dinheiro de um cliente.
+- **Travel Rule** — a exigência de compartilhar informações de ordenante e beneficiário em transferências acima de um
+  limite.
+- **VASP** — *Virtual Asset Service Provider*; o rótulo regulatório para um negócio de cripto, como uma exchange ou
+  custodiante.
+- **MiCA** — o regulamento de Mercados em Criptoativos da União Europeia.
+- **Segregação de funções** — dividir uma ação sensível entre pessoas para que ninguém sozinho a complete (ver
+  [Segregação de funções e quatro olhos](#segregation-of-duties-and-four-eyes)).
+- **Quatro olhos / maker-checker / controle dual** — exigir que uma segunda pessoa aprove uma ação sensível antes de ela
+  ter efeito (ver [Segregação de funções e quatro olhos](#segregation-of-duties-and-four-eyes)).
+- **Menor privilégio / RBAC** — conceder a cada ator o mínimo de acesso necessário / geri-lo por papéis em vez de
+  concessões por pessoa (ver [Controle de acesso](#access-control)).
+- **Gestão de mudanças (*change management*)** — o processo controlado e rastreável (revisão, aprovação, deploy) pelo
+  qual código e configuração chegam à produção (ver [A trilha de mudanças (SDLC)](#the-change-trail-sdlc)).
+- **Auditoria / trilha de auditoria** — o escrutínio externo de que livros e controles refletem a realidade / a história
+  registrada que permite reproduzir qualquer saldo ou decisão (ver
+  [Auditorias e trilhas de auditoria](#audits-and-audit-trails)).
+
+### Pix (glossário do arranjo brasileiro)
+
+- **Pix** — o arranjo de pagamentos instantâneos instituído e gerido pelo Banco Central do Brasil (BCB), disponível
+  24×7, com liquidação em segundos.
+- **SPI (Sistema de Pagamentos Instantâneos)** — a infraestrutura de liquidação do Pix, operada pelo BCB, que liquida as
+  ordens de forma bruta e em tempo real em moeda de banco central.
+- **Conta PI (Conta de Pagamentos Instantâneos)** — a conta que cada participante direto mantém no BCB, de onde saem e
+  entram os recursos liquidados no SPI.
+- **DICT (Diretório de Identificadores de Contas Transacionais)** — a base, operada pelo BCB, que associa cada chave Pix
+  a uma conta; consultada para resolver o destino de um pagamento.
+- **Chave Pix** — o apelido que identifica uma conta: CPF/CNPJ, e-mail, telefone ou chave aleatória (**EVP**, *Endereço
+  Virtual de Pagamento*).
+- **EndToEndId (E2EID)** — identificador único de 32 caracteres de uma ordem de pagamento, usado de ponta a ponta para
+  rastreio, deduplicação/[idempotência](#idempotency) e como referência de uma Devolução.
+- **Devolução** — a operação de retorno de um Pix, no sentido inverso, referenciando o E2EID original (ver
+  [Estornos e correções](#reversals-and-corrections)).
+- **MED (Mecanismo Especial de Devolução)** — o procedimento definido pelo BCB para devolver recursos em casos de fraude
+  ou falha operacional, com marcação de fraude no DICT e prazos próprios.
+- **Participante direto / indireto** — instituição que acessa o SPI diretamente vs. a que participa por meio de um
+  liquidante.
+- **PSP do pagador / do recebedor** — os prestadores de serviços de pagamento das duas pontas da transação.
+- **ISPB** — Identificador de Sistema de Pagamentos Brasileiro; o código que identifica cada participante.
+- **RSFN** — Rede do Sistema Financeiro Nacional; a rede segura por onde trafegam as mensagens entre participantes e o
+  BCB.
+- **[BR Code](https://www.emvco.com/emv-technologies/qr-codes/) / QR Code Pix** — o padrão de QR Code (estático ou dinâmico) que carrega os dados da cobrança.
+- **Pix Cobrança** — o conjunto de APIs para gerar cobranças (com txid, QR dinâmico) e receber notificações de
+  pagamento.
+- **txid** — o identificador da cobrança, que amarra o QR/cobrança ao pagamento recebido.
+- **Pix Agendado** — pagamento com data futura, um caso de transação pós-datada (ver
+  [Data de valor vs. data de lançamento vs. data de liquidação](#value-time-vs-booking-time-vs-settlement-time)).
+- **Pix Automático** — modalidade de pagamentos recorrentes autorizados previamente pelo pagador.
+- **Pix Saque / Pix Troco** — modalidades para sacar dinheiro em espécie via Pix, com e sem uma compra associada.
+
+### Recursos
+
+Nenhum livro único cobre sistemas de dinheiro de ponta a ponta, então a lista abaixo é agrupada por camada. Cada entrada
+indica o que cobre e para quem é voltada, para você escolher pelo que está faltando. As obras abaixo estão em inglês;
+mais adiante há uma seção de referências brasileiras sobre o Pix.
+
+**Contabilidade e livros-razão**
 
 - [*Accounting for Computer
   Scientists*](https://martin.kleppmann.com/2011/03/07/accounting-for-computer-scientists.html)
-  (essay, free online) - maps double-entry bookkeeping onto a graph/data model, written for engineers rather than
-  accountants.
+  (ensaio, gratuito online) — mapeia as partidas dobradas em um modelo de grafo/dados, escrito para engenheiros e não
+  para contadores.
 - [*The Accounting Game: Basic Accounting Fresh from the Lemonade
-  Stand*](https://www.goodreads.com/book/show/420846.Accounting_Game) - accounting from first principles via a
-  running lemonade-stand example; assumes no finance background.
+  Stand*](https://www.goodreads.com/book/show/420846.Accounting_Game) — contabilidade a partir dos primeiros princípios
+  via um exemplo corrente de uma banca de limonada; não assume formação em finanças.
 - [Modern Treasury, *How to Scale a Ledger*](https://www.moderntreasury.com/journal/how-to-scale-a-ledger-part-i)
-  (article series, free online) - building a production ledger from a software-engineering angle.
+  (série de artigos, gratuita online) — construir um razão de produção sob a ótica da engenharia de software.
 
-**Payments & cards**
+**Pagamentos e cartões**
 
-- [*Payments Systems in the U.S.*](https://www.goodreads.com/book/show/36055478-payments-systems-in-the-u-s) - a
-  reference-style tour of how money moves between banks (cards, ACH, wires, checks). US-centric; thorough and on the
-  dry side.
-- [*The Anatomy of the Swipe*](https://www.goodreads.com/book/show/53521551-the-anatomy-of-the-swipe) - what happens
-  between tapping a card and the money arriving, pitched at builders and beginners.
+- [*Payments Systems in the U.S.*](https://www.goodreads.com/book/show/36055478-payments-systems-in-the-u-s) — um tour
+  de referência de como o dinheiro se move entre bancos (cartões, ACH, wires, cheques). Centrado nos EUA; minucioso e um
+  tanto seco.
+- [*The Anatomy of the Swipe*](https://www.goodreads.com/book/show/53521551-the-anatomy-of-the-swipe) — o que acontece
+  entre passar o cartão e o dinheiro chegar, voltado a construtores e iniciantes.
 
-**Markets & trading**
+**Mercados e negociação**
 
 - [*Trading and Exchanges: Market Microstructure for
-  Practitioners*](https://www.goodreads.com/book/show/1290158.Trading_and_Exchanges) - where order books,
-  makers/takers, and spreads come from; a long, detailed practitioner reference.
+  Practitioners*](https://www.goodreads.com/book/show/1290158.Trading_and_Exchanges) — de onde vêm livros de ofertas,
+  makers/takers e spreads; uma referência longa e detalhada para praticantes.
 
-**Crypto**
+**Cripto**
 
-- [*Mastering Bitcoin*](https://www.goodreads.com/book/show/21820378-mastering-bitcoin) and
-  [*Mastering Ethereum*](https://www.goodreads.com/book/show/33584554-mastering-ethereum) - engineering-level references
-  for the two models a fintech engineer keeps meeting (UTXO and account). Technical; aimed at developers.
+- [*Mastering Bitcoin*](https://www.goodreads.com/book/show/21820378-mastering-bitcoin) e
+  [*Mastering Ethereum*](https://www.goodreads.com/book/show/33584554-mastering-ethereum) — referências em nível de
+  engenharia para os dois modelos que um engenheiro de fintech reencontra sempre (UTXO e conta). Técnicos; voltados a
+  desenvolvedores.
 
-**The engineering half**
+**A metade de engenharia**
 
 - [*Designing Data-Intensive
-  Applications*](https://www.goodreads.com/book/show/23463279-designing-data-intensive-applications) - idempotency,
-  logs, consistency, and the failure modes this handbook keeps returning to, from the systems side.
+  Applications*](https://www.goodreads.com/book/show/23463279-designing-data-intensive-applications) — idempotência,
+  logs, consistência e os modos de falha aos quais este manual sempre volta, pelo lado de sistemas.
 
-**KYC & AML**
+**KYC e PLD**
 
-These are written for compliance professionals rather than engineers, so reach for them only when you need the domain
-itself, not the integration.
+Estas são escritas para profissionais de compliance, não engenheiros, então recorra a elas apenas quando precisar do
+domínio em si, não da integração.
 
-- [*Anti-Money Laundering in a Nutshell*](https://www.goodreads.com/book/show/23466132-anti-money-laundering) - a short,
-  awareness-level introduction to what laundering is and how detection and reporting work.
-- [*Mastering Anti-Money Laundering and Counter-Terrorist Financing*](https://www.goodreads.com/book/show/13698660) - a
-  heavier practitioner guide to building an AML/CTF framework, with checklists and example documents.
+- [*Anti-Money Laundering in a Nutshell*](https://www.goodreads.com/book/show/23466132-anti-money-laundering) — uma
+  introdução curta, em nível de conscientização, sobre o que é lavagem e como funcionam a detecção e o reporte.
+- [*Mastering Anti-Money Laundering and Counter-Terrorist Financing*](https://www.goodreads.com/book/show/13698660) — um
+  guia mais pesado para praticantes construírem um arcabouço de PLD/FT, com checklists e documentos de exemplo.
 
-## Appendix B: End to end examples
+**Pix e sistema financeiro brasileiro**
 
-The body of this handbook takes each pattern on its own, which makes it hard to build holistic understanding and
-intuition. This appendix walks through common flows that act as simplified but representative examples of what you will
-see in a real system. A production implementation would have more steps, more failure branches, and more bookkeeping, but
-the simplified version should be enough to get the general idea. They cover the three directions money moves: **out** of
-the system (a withdrawal), **into** it (a card deposit), and **within** it (a conversion).
+- [Banco Central do Brasil — Pix](https://www.bcb.gov.br/estabilidadefinanceira/pix) — página oficial com a regulação, os
+  manuais operacionais e de fluxos, e as resoluções do arranjo. A fonte primária para qualquer dúvida normativa.
+- [Especificações da API Pix (Bacen, no GitHub)](https://github.com/bacen/pix-api) — os contratos das APIs (DICT,
+  Cobrança, etc.), úteis para quem integra.
+- [Banco Central do Brasil — SPI](https://www.bcb.gov.br/estabilidadefinanceira/spi) — sobre a infraestrutura de
+  liquidação por trás do Pix.
 
-### Flow 1: A crypto withdrawal
+## Apêndice B: Exemplos de ponta a ponta
 
-A user asks to withdraw 0.5 ETH to an external address. This is the richest of the three because money is leaving the
-system through an irreversible external effect - once the chain confirms the send, there is no taking it back.
+O corpo deste manual trata cada padrão isoladamente, o que dificulta construir uma compreensão e uma intuição
+holísticas. Este apêndice percorre fluxos comuns que servem de exemplos simplificados, porém representativos, do que
+você verá em um sistema real. Uma implementação de produção teria mais passos, mais ramos de falha e mais contabilidade,
+mas a versão simplificada deve bastar para pegar a ideia geral. Eles cobrem as três direções em que o dinheiro se move:
+para **fora** do sistema (um saque), para **dentro** dele (um depósito com cartão) e **internamente** (uma conversão). A
+elas somamos um quarto fluxo, específico do Brasil: uma **transferência Pix**.
 
-1. **The request arrives with an idempotency key.** The client may retry the submit (the network ate the response, the
-   user double-clicked), so the very first concern is that two deliveries of the same request create *one* withdrawal,
-   not two (see [Idempotency](#idempotency)). The key is scoped to this user and this operation.
-2. **Funds are reserved before anything irreversible happens.** You reserve 0.5 ETH plus an estimated network fee
-   against
-   the user's *available* balance (see [Funds reservation](#funds-reservation)). The balance check and the reservation
-   are a single linearizable step - otherwise two concurrent withdrawals could both pass the check and back their spends
-   with the same coins (see [Invariants](#invariants)). From here the user's *total* balance still includes the reserved
-   amount, but their *available* balance does not.
-3. **The compliance gate runs - and the flow may sleep here for days.** Before broadcasting, you screen the transaction
-   (sanctions, AML, the destination address). Here we tie several patterns together:
-    - It is an **external call**, so it will be slow, fail, or lie, and you build defensively around it (see
-      [Consuming APIs](#consuming-apis)).
-    - It may escalate to **manual review** that takes hours or days, so the flow has to survive dying between this step
-      and the next (see [Full resumability](#full-resumability)): its state is persisted, an independent driver resumes
-      it, and meanwhile the reservation simply stays in place.
-    - A **daily withdrawal limit** is enforced here, and it is nothing more than an invariant (see
-      [Invariants](#invariants)). Because it is a time-windowed, stateful invariant evaluated under concurrency, it has
-      the same atomicity problem as the reservation: two withdrawals racing past the limit must not both pass.
-    - Every decision - passed, blocked, who overrode it - lands in the audit trail (see
-      [Audits and audit trails](#audits-and-audit-trails)).
-4. **The transaction is broadcast on-chain.** Once cleared, you sign and broadcast through a node - another external
-   call
-   subject to all the same caveats. This step must be idempotent: a resume after a crash must *re-check the chain*, not
-   blindly broadcast a second time (see [Idempotency](#idempotency), point 7 on out-of-order retries). The real network
-   fee is not known upfront, which is exactly why you reserved an *estimate* - you will settle the actual amount and
-   release the remainder.
-5. **You wait for finality, then post to the ledger.** A single confirmation is not the end - a reorg can undo a send
-   you
-   declared "done" too early, so you wait for enough confirmations. Only then do you post the double-entry movements:
-   debit the user's account, credit the external on-chain account (the outside world gets an account too), and book the
-   network fee against an expense account and your service fee against a revenue account (
-   see [Double-entry bookkeeping](#double-entry-bookkeeping)).
-6. **A nightly job reconciles against the chain.** Independently of the flow above, a job compares the ledger with
-   on-chain reality and the node's view of your transactions (see [Reconciliation](#reconciliation)). It is the safety
-   net that catches a broadcast that never confirmed, or a fee that came out different from what you booked.
+### Fluxo 1: Um saque de cripto
 
-**Where it gets interesting:** suppose the actual network fee comes in higher than the estimate you reserved. The
-settlement can push the account negative. You book the
-overdraft and recover it explicitly (see [Handling overdrafts](#handling-overdrafts)). And if the process crashes
-between broadcast (step 4) and confirmation (step 5), resumability plus idempotency are what let it pick up by querying
-the chain rather than sending the funds twice.
+Um usuário pede para sacar 0,5 ETH para um endereço externo. Este é o mais rico dos três porque o dinheiro está saindo
+do sistema por um efeito externo irreversível — uma vez que a rede confirma o envio, não há como voltar atrás.
 
-### Flow 2: A card deposit
+1. **A requisição chega com uma chave de idempotência.** O cliente pode repetir o envio (a rede comeu a resposta, o
+   usuário deu duplo clique), então a primeira preocupação é que duas entregas da mesma requisição criem *um* saque, não
+   dois (ver [Idempotência](#idempotency)). A chave tem escopo deste usuário e desta operação.
+2. **Os fundos são reservados antes de qualquer coisa irreversível.** Você reserva 0,5 ETH mais uma taxa de rede
+   estimada contra o saldo *disponível* do usuário (ver [Reserva de fundos](#funds-reservation)). A verificação de saldo
+   e a reserva são um único passo linearizável — do contrário dois saques concorrentes poderiam passar na verificação e
+   lastrear seus gastos com as mesmas moedas (ver [Invariantes](#invariants)). A partir daqui o saldo *total* do usuário
+   ainda inclui o valor reservado, mas o *disponível* não.
+3. **O portão de compliance roda — e o fluxo pode dormir aqui por dias.** Antes de transmitir, você triaga a transação
+   (sanções, PLD, o endereço de destino). Aqui amarramos vários padrões:
+    - É uma **chamada externa**, então será lenta, vai falhar ou mentir, e você constrói defensivamente ao seu redor
+      (ver [Consumindo APIs](#consuming-apis)).
+    - Pode escalar para **revisão manual** que leva horas ou dias, então o fluxo tem de sobreviver a morrer entre este
+      passo e o próximo (ver [Resumabilidade total](#full-resumability)): seu estado é persistido, um condutor
+      independente o retoma, e enquanto isso a reserva simplesmente permanece no lugar.
+    - Um **limite diário de saque** é imposto aqui, e ele nada mais é que uma invariante (ver
+      [Invariantes](#invariants)). Como é uma invariante com estado e janela de tempo, avaliada sob concorrência, tem o
+      mesmo problema de atomicidade da reserva: dois saques correndo para ultrapassar o limite não podem ambos passar.
+    - Toda decisão — aprovado, bloqueado, quem sobrepôs — cai na trilha de auditoria (ver
+      [Auditorias e trilhas de auditoria](#audits-and-audit-trails)).
+4. **A transação é transmitida on-chain.** Uma vez liberada, você assina e transmite por um nó — outra chamada externa
+   sujeita a todas as mesmas ressalvas. Este passo precisa ser idempotente: uma retomada após uma queda precisa
+   *reconsultar a rede*, não transmitir cegamente uma segunda vez (ver [Idempotência](#idempotency), ponto 7 sobre
+   tentativas fora de ordem). A taxa de rede real não é conhecida de antemão, e é exatamente por isso que você reservou
+   uma *estimativa* — vai liquidar o valor real e liberar o restante.
+5. **Você espera a finalidade e então lança no razão.** Uma única confirmação não é o fim — um reorg pode desfazer um
+   envio que você declarou "pronto" cedo demais, então você espera confirmações suficientes. Só então lança os
+   movimentos de partidas dobradas: debita a conta do usuário, credita a conta externa on-chain (o mundo externo também
+   ganha uma conta) e contabiliza a taxa de rede em uma conta de despesa e sua tarifa de serviço em uma conta de receita
+   (ver [Partidas dobradas](#double-entry-bookkeeping)).
+6. **Uma rotina noturna concilia contra a rede.** Independentemente do fluxo acima, uma rotina compara o razão com a
+   realidade on-chain e a visão do nó sobre suas transações (ver [Conciliação](#reconciliation)). É a rede de segurança
+   que pega uma transmissão que nunca confirmou, ou uma taxa que saiu diferente do que você contabilizou.
 
-A user tops up their account with a card payment through a payment service provider (PSP). Money is coming *in*, which
-shifts the hard part from "don't send twice" to "don't trust what the outside world tells you, and don't credit money
-that hasn't really arrived."
+**Onde fica interessante:** suponha que a taxa de rede real venha maior que a estimativa que você reservou. A liquidação
+pode empurrar a conta para o negativo. Você contabiliza o overdraft e o recupera explicitamente (ver
+[Lidando com saldos negativos](#handling-overdrafts)). E se o processo cai entre a transmissão (passo 4) e a confirmação
+(passo 5), resumabilidade mais idempotência são o que permitem retomar consultando a rede em vez de enviar os fundos
+duas vezes.
 
-1. **The user initiates the deposit.** They enter an amount and submit their card details, and you open a deposit
-   transaction with the PSP - again with an idempotency key, since the submit can be retried.
-2. **Authorization places a hold.** The PSP authorizes the card, placing a hold without yet capturing the money. This is
-   the card world's version of funds reservation (authorization vs capture). You do not credit the user's balance yet -
-   the money is not yours.
-3. **A webhook says "captured" - and you believe none of it.** The PSP calls your webhook endpoint (see
-   [Handling webhooks](#handling-webhooks)). You verify the signature over the *raw bytes*, persist the raw payload,
-   acknowledge fast with a 2xx, and only then process asynchronously. Crucially you treat the webhook as a *hint that
-   something happened*, not as truth: you query the PSP's API for the authoritative state, because webhooks arrive out
-   of
-   order, carry stale data, get duplicated, and get lost. Processing is idempotent (see [Idempotency](#idempotency)) so a
-   re-delivered "captured" credits the user once.
-4. **The credit goes through a clearing account.** The money is in flight (float) - captured by the PSP but not yet
-   settled to your bank - so you post it through a suspense/clearing account rather than pretending it has arrived:
-   credit
-   the user's balance (a liability - their balance is an IOU from you to them) and debit a PSP receivable. The
-   interchange/processing fee is booked as an expense. Booking time is now; settlement time is later, T+X (see
-   [Value time vs booking time vs settlement time](#value-time-vs-booking-time-vs-settlement-time)).
-5. **Settlement arrives as a batch, and reconciliation is one-to-many.** Days later the PSP settles a single transfer to
-   your bank covering many deposits at once. You reconcile that batch against the clearing account (see
-   [Reconciliation](#reconciliation)), matching one settlement against many transactions. The T+X delay is baked into
-   the process so you do not alert on transactions that are simply not settled *yet* - and this same job is what catches
-   a webhook that never arrived at all.
-6. **Weeks later, a chargeback.** The cardholder disputes the payment and their bank forces a reversal. You do not edit
-   the original posting - you post a linked compensating entry (
-   see [Reversals and corrections](#reversals-and-corrections)),
-   which will usually land in a later reporting period than the deposit, and which may push the user's balance negative
-   if
-   they have already spent the funds (back to [Handling overdrafts](#handling-overdrafts)).
+### Fluxo 2: Um depósito com cartão
 
-**Where it gets interesting:** the whole flow is built on *not* believing the happy-path signal. The webhook is a
-trigger, not a fact; the clearing account refuses to recognize money until it has actually moved; reconciliation
-verifies the PSP against your own books rather than the other way around. Every step is an application of *no trust*.
+Um usuário recarrega a conta com um pagamento por cartão através de um prestador de serviços de pagamento (PSP). O
+dinheiro está *entrando*, o que desloca a parte difícil de "não envie duas vezes" para "não confie no que o mundo
+externo te diz, e não credite dinheiro que ainda não chegou de verdade".
 
-### Flow 3: An in-app conversion with cashback
+1. **O usuário inicia o depósito.** Ele informa um valor e envia os dados do cartão, e você abre uma transação de
+   depósito com o PSP — de novo com uma chave de idempotência, já que o envio pode ser repetido.
+2. **A autorização coloca um bloqueio.** O PSP autoriza o cartão, colocando um bloqueio sem ainda capturar o dinheiro.
+   É a versão do mundo dos cartões para a reserva de fundos (autorização vs. captura). Você ainda não credita o saldo do
+   usuário — o dinheiro não é seu.
+3. **Um webhook diz "capturado" — e você não acredita em nada disso.** O PSP chama seu endpoint de webhook (ver
+   [Lidando com webhooks](#handling-webhooks)). Você verifica a assinatura sobre os *bytes crus*, persiste o payload
+   cru, confirma rápido com um 2xx, e só então processa de forma assíncrona. Crucialmente, você trata o webhook como uma
+   *pista de que algo aconteceu*, não como verdade: consulta a API do PSP pelo estado autoritativo, porque webhooks
+   chegam fora de ordem, carregam dados defasados, são duplicados e se perdem. O processamento é idempotente (ver
+   [Idempotência](#idempotency)) para que um "capturado" reentregue credite o usuário uma única vez.
+4. **O crédito passa por uma conta de compensação.** O dinheiro está em trânsito (float) — capturado pelo PSP mas ainda
+   não liquidado no seu banco — então você o lança por uma conta transitória (de trânsito) em vez de fingir que ele
+   chegou: credita o saldo do usuário (um passivo — o saldo dele é um IOU seu para com ele) e debita um recebível do
+   PSP. A tarifa de intercâmbio/processamento é contabilizada como despesa. A data de lançamento é agora; a de
+   liquidação é mais tarde, T+X (ver
+   [Data de valor vs. data de lançamento vs. data de liquidação](#value-time-vs-booking-time-vs-settlement-time)).
+5. **A liquidação chega em lote, e a conciliação é um-para-muitos.** Dias depois o PSP liquida uma única transferência
+   para o seu banco cobrindo muitos depósitos de uma vez. Você concilia esse lote contra a conta de compensação (ver
+   [Conciliação](#reconciliation)), casando uma liquidação contra muitas transações. O atraso T+X está embutido no
+   processo para você não alertar sobre transações que simplesmente ainda *não* liquidaram — e essa mesma rotina é a que
+   pega um webhook que nunca chegou.
+6. **Semanas depois, um chargeback.** O portador contesta o pagamento e o banco dele força um estorno. Você não edita o
+   lançamento original — lança um lançamento compensatório vinculado (ver [Estornos e correções](#reversals-and-corrections)),
+   que normalmente cairá em um período de apuração posterior ao do depósito, e que pode empurrar o saldo do usuário para
+   o negativo se ele já tiver gasto os fundos (de volta a [Lidando com saldos negativos](#handling-overdrafts)).
 
-A user converts 1,000 EUR into USDC and earns a small promotional cashback on the trade. Money moves entirely *within*
-the system, so there is no unreliable external rail - instead this flow stresses the representation layer (precision,
-rounding, currencies, rates) and the sharpest form of the *no invented data* principle.
+**Onde fica interessante:** o fluxo inteiro é construído sobre *não* acreditar no sinal do caminho feliz. O webhook é um
+gatilho, não um fato; a conta de compensação se recusa a reconhecer o dinheiro até ele de fato ter se movido; a
+conciliação verifica o PSP contra os seus próprios livros, e não o contrário. Cada passo é uma aplicação de *nenhuma
+confiança*.
 
-1. **A directional quote, and a reservation.** You quote a rate for EUR→USDC. That rate is its own price, not the
-   inverse
-   of USDC→EUR - buying and selling sit on opposite sides of the bid/ask spread (see [FX Rates](#fx-rates)). You reserve
-   the 1,000 EUR (see [Funds reservation](#funds-reservation)), and the request carries an idempotency key like any
-   other.
-2. **The two sides never get added together.** EUR and USDC are distinct currencies - in fact USDC is identified by
-   `(network, contract address)`, not a bare code, and is not interchangeable with the fiat it is pegged to (see
-   [Currency handling](#currency-handling)). The system forbids cross-currency arithmetic; the only bridge between the
-   two amounts is an explicit conversion at the controlled rate.
-3. **Full precision through the math, rounding only at the edge.** You compute the conversion keeping full precision and
-   round exactly once, at the boundary, with a deliberately chosen strategy (
-   see [Precision handling](#precision-handling)
-   and [Rounding strategies](#rounding-strategies)). The spread you earn is *revenue* - it must be booked explicitly to
-   a
-   revenue account via double-entry, not allowed to disappear into a rounding residual (see
-   [Double-entry bookkeeping](#double-entry-bookkeeping)). You do not store the transactional rate as a separate field;
-   it
-   falls out of the two amounts. A separate reference rate is what you would use later to value the holding.
-4. **The cashback is the hardest test of "no invented data."** It is tempting to treat a bonus as a free balance bump,
-   but that would mint money from nothing. The cashback is real money: it must be *funded* - moved out of a company
-   promotional/expense account into the user's balance via a proper double-entry posting - and the percentage that
-   defines it needs the same explicit rounding decision as everything else (
-   see [Rounding strategies](#rounding-strategies)).
-5. **Settle, then notify reliably.** You settle the reservation, post all the movements with their timestamps and audit
-   trail, and publish the outcome so the rest of the system - statements, notifications, analytics - learns about it.
-   That
-   publish has to be reliable even though it spans a separate channel, which is what the outbox (or CDC, or the event
-   log)
-   is for (see [Notifying reliably (Outbox and CDC)](#notifying-reliably-outbox-and-cdc)); downstream consumers dedupe
-   on
-   a stable event id because delivery is at-least-once.
+### Fluxo 3: Uma conversão no app com cashback
 
-**Where it gets interesting:** the cashback and the spread pull in opposite directions on the same posting. The spread
-is
-money the user *loses* to you (revenue); the cashback is money you *give* the user (an expense). Both are real, both go
-through the books, and both round - so the one transaction has to satisfy *no invented data* (the books still balance,
-nothing minted) and *no lost data* (every residual tracked) at the same time.
+Um usuário converte 1.000 EUR em USDC e ganha um pequeno cashback promocional na operação. O dinheiro se move
+inteiramente *dentro* do sistema, então não há trilho externo não confiável — em vez disso, este fluxo estressa a camada
+de representação (precisão, arredondamento, moedas, taxas) e a forma mais afiada do princípio *nenhum dado inventado*.
 
-## Appendix C: About this handbook {#about}
+1. **Uma cotação direcional, e uma reserva.** Você cota uma taxa para EUR→USDC. Essa taxa é seu próprio preço, não o
+   inverso de USDC→EUR — comprar e vender ficam em lados opostos do spread de compra/venda (ver
+   [Taxas de câmbio (FX)](#fx-rates)). Você reserva os 1.000 EUR (ver [Reserva de fundos](#funds-reservation)), e a
+   requisição carrega uma chave de idempotência como qualquer outra.
+2. **Os dois lados nunca são somados.** EUR e USDC são moedas distintas — na verdade o USDC é identificado por
+   `(rede, endereço de contrato)`, não por um código simples, e não é intercambiável com a moeda fiduciária a que está
+   atrelado (ver [Tratamento de moedas](#currency-handling)). O sistema proíbe aritmética entre moedas; a única ponte
+   entre os dois valores é uma conversão explícita à taxa controlada.
+3. **Precisão total durante a matemática, arredondando só na borda.** Você computa a conversão mantendo precisão total e
+   arredonda exatamente uma vez, na fronteira, com uma estratégia deliberadamente escolhida (ver
+   [Tratamento de precisão](#precision-handling) e [Estratégias de arredondamento](#rounding-strategies)). O spread que
+   você ganha é *receita* — precisa ser contabilizado explicitamente em uma conta de receita via partidas dobradas, e
+   não ser deixado desaparecer em um resíduo de arredondamento (ver [Partidas dobradas](#double-entry-bookkeeping)).
+   Você não armazena a taxa transacional como um campo separado; ela decorre dos dois valores. Uma taxa de referência à
+   parte é o que você usaria depois para valorar a posição.
+4. **O cashback é o teste mais difícil de "nenhum dado inventado".** É tentador tratar um bônus como um acréscimo
+   gratuito de saldo, mas isso cunharia dinheiro do nada. O cashback é dinheiro real: precisa ser *custeado* — movido de
+   uma conta promocional/de despesa da empresa para o saldo do usuário via um lançamento de partidas dobradas adequado —
+   e o percentual que o define precisa da mesma decisão explícita de arredondamento que todo o resto (ver
+   [Estratégias de arredondamento](#rounding-strategies)).
+5. **Liquide, então notifique de forma confiável.** Você liquida a reserva, lança todos os movimentos com seus carimbos
+   de tempo e trilha de auditoria, e publica o desfecho para que o resto do sistema — extratos, notificações, analytics
+   — fique sabendo. Essa publicação tem de ser confiável mesmo abrangendo um canal separado, que é para isso que serve o
+   outbox (ou o CDC, ou o log de eventos) (ver
+   [Notificando de forma confiável (Outbox e CDC)](#notifying-reliably-outbox-and-cdc)); consumidores a jusante
+   deduplicam por um id de evento estável porque a entrega é ao-menos-uma-vez.
 
-### Who wrote it
+**Onde fica interessante:** o cashback e o spread puxam em direções opostas no mesmo lançamento. O spread é dinheiro que
+o usuário *perde* para você (receita); o cashback é dinheiro que você *dá* ao usuário (despesa). Ambos são reais, ambos
+passam pelos livros, e ambos arredondam — então a mesma transação tem de satisfazer *nenhum dado inventado* (os livros
+ainda fecham, nada cunhado) e *nenhum dado perdido* (todo resíduo rastreado) ao mesmo tempo.
 
-My name is Voytek and I'm the author of this handbook. The content is based on my experience in the industry, which
-has been primarily around payments, accounting, controlling and treasury management for both fiat and crypto. I also
-had some second-hand exposure to trading and investment products.
+### Fluxo 4: Uma transferência Pix
 
-### How it was written
+Ana envia **R$ 250,00** para Bruno usando a chave Pix dele (um e-mail). O dinheiro sai do sistema por um trilho externo —
+o SPI —, mas, diferente do saque de cripto, a liquidação é **doméstica, irreversível e em segundos**. Este fluxo reúne
+quase todos os padrões do manual no contexto brasileiro.
 
-Most of the content was written by my own hand, but I did leverage AI for many things, such as polishing,
-structuring, research and review.
+1. **A requisição chega com uma chave de idempotência do cliente.** O app pode repetir o envio (a rede comeu a resposta,
+   Ana tocou duas vezes), então essa perna app→PSP carrega uma **chave de idempotência do cliente**, que faz duas
+   entregas da mesma ordem produzirem *um* Pix, não dois. O PSP mapeia essa chave para um `EndToEndId` (E2EID) único, que
+   passa a ser a âncora de idempotência de ponta a ponta na perna PSP→SPI (ver [Idempotência](#idempotency)).
+2. **A chave é resolvida no DICT.** O PSP consulta o DICT para descobrir a conta de destino a partir do e-mail. É uma
+   **chamada externa**: valide na fronteira só os campos que você usa (conta, ISPB do dono) e falhe alto no inesperado;
+   não confie cegamente no schema, e respeite os limites de consulta ao arranjo (ver
+   [Consumindo APIs](#consuming-apis)).
+3. **Os fundos são reservados antes de enviar ao SPI.** O PSP reserva (bloqueia) R$ 250,00 contra o saldo *disponível*
+   de Ana; a verificação de saldo e o bloqueio são um único passo linearizável, senão dois Pix simultâneos poderiam
+   lastrear-se no mesmo saldo (ver [Reserva de fundos](#funds-reservation) e [Invariantes](#invariants)).
+4. **Os limites do Pix são checados — uma invariante com janela.** O limite por transação e por período (com o **período
+   noturno** reduzido) é avaliado sob concorrência, com o mesmo problema de atomicidade da reserva: dois pagamentos
+   correndo para ultrapassar o limite não podem ambos passar (ver [Invariantes](#invariants)). Toda decisão cai na
+   trilha de auditoria (ver [Auditorias e trilhas de auditoria](#audits-and-audit-trails)).
+5. **A ordem é enviada ao SPI, e o passo é retomável.** O envio é idempotente pelo E2EID. Se o PSP cai *depois* de
+   enviar mas *antes* de registrar a confirmação, a retomada não reenvia às cegas — ela **consulta o status daquela
+   ordem** no SPI (a fonte da verdade) antes de decidir avançar (ver [Resumabilidade total](#full-resumability) e
+   [Idempotência](#idempotency), ponto 7).
+6. **A liquidação ocorre em segundos, e o razão é lançado.** O SPI liquida de forma bruta e em tempo real, movendo os
+   recursos entre as Contas PI dos dois participantes. Aí a reserva é liquidada e os movimentos de partidas dobradas são
+   lançados: no PSP de Ana, debita a conta dela e credita a Conta PI; no de Bruno, o espelho (ver
+   [Partidas dobradas](#double-entry-bookkeeping)). Data de valor, de lançamento e de liquidação praticamente coincidem
+   — T+0 — mas continuam distintas (ver
+   [Data de valor vs. data de lançamento vs. data de liquidação](#value-time-vs-booking-time-vs-settlement-time)).
+7. **O recebedor é notificado — e não se confia na notificação.** O PSP de Bruno emite a notificação de "Pix recebido".
+   Um sistema que consuma isso deve tratá-la como gatilho e **consultar a API pelo estado autoritativo** (por E2EID),
+   deduplicando reentregas (ver [Lidando com webhooks](#handling-webhooks)). Internamente, essa publicação sai de forma
+   confiável via outbox (ver [Notificando de forma confiável (Outbox e CDC)](#notifying-reliably-outbox-and-cdc)).
+8. **Uma rotina concilia contra o SPI.** Independentemente do fluxo, uma rotina compara o razão com os extratos de
+   liquidação do SPI e o saldo da Conta PI (ver [Conciliação](#reconciliation)), casando pelo E2EID e absorvendo os
+   registros legitimamente abertos (devoluções, agendamentos) sem alarme falso.
 
-This book is meant as a living document, and I plan to update it regularly when I find something add-worthy. Feedback is very much welcomed
-and can be shared anywhere, but [GitHub Issues](https://github.com/Krever/fintech-engineering-handbook/issues) is
-probably the best place for it.
+**Onde fica interessante:** como a liquidação é irreversível, não há "cancelar" — se depois se descobre que o Pix veio de
+uma fraude, o conserto é para frente, com uma **Devolução** referenciando o E2EID original, eventualmente pelo **MED**
+(ver [Estornos e correções](#reversals-and-corrections)). E se, em vez de imediato, Ana tivesse feito um **Pix
+Agendado**, a ordem seria registrada hoje (lançamento) mas só enviada à liquidação na data futura (valor) — o caso
+pós-datado por excelência; faltando saldo na data, o PSP trata a falha explicitamente, nunca em silêncio.
 
-### What to expect
+## Apêndice C: Sobre este manual {#about}
 
-Most of the book should be prefixed with "it depends", as should basically any non-trivial topic. But such a disclaimer serves no purpose.
-Instead, I try to give safe default advice and enough context for the reader to decide whether a given piece of advice applies to their situation.
+::: {.callout-note}
+## Nota da edição em português
+Este apêndice, abaixo, é do autor original, Voytek Pitula, e foi traduzido. A presente **edição em português
+brasileiro** acrescenta a tradução integral e os exemplos do **Pix** (as caixas "No Pix", o glossário do arranjo e o
+Fluxo 4), sob a licença [CC BY 4.0](LICENSE) do original. O conteúdo do Pix baseia-se nos normativos públicos do Banco
+Central do Brasil; nada aqui é aconselhamento jurídico, de compliance ou financeiro, e, em caso de dúvida, a fonte
+normativa oficial do BCB prevalece.
 
-The content of the book covers the topics I know something about, which leaves large gaps, e.g. around hardcore trading, pricing,
-capital markets, and more. Yet the title is generic and aspirational - I would love to cover as much of the fintech space as possible.
-If you think something important and widely useful is missing, please let me know.
+Esta edição foi produzida **com assistência de IA (LLM)** e **revisada por humano**, sob responsabilidade de **Társis
+Toledo**, que assina e responde pela adaptação — incluindo a verificação dos exemplos do Pix contra os normativos do BCB.
+:::
 
-A lot of the material (idempotency, ordering, retries, reconciliation) is general distributed-systems practice, but it's
-included here because these topics are critical when stakes are high, and a must-know for any fintech engineer.
+### Quem escreveu
 
-The book was written with a thinking reader in mind, and I assume no one will follow it blindly. It should go without saying
-that your internal guidelines and practices take precedence over the advice I share (though the latter could prompt you to question the former).
-And nothing here is legal, compliance or financial advice. Of course.
+Meu nome é Voytek e sou o autor deste manual. O conteúdo é baseado na minha experiência no setor, que se deu
+principalmente em torno de pagamentos, contabilidade, controladoria e gestão de tesouraria, tanto para moeda fiduciária
+quanto para cripto. Também tive alguma exposição indireta a negociação e produtos de investimento.
 
-### Need more help?
+### Como foi escrito
 
-If you need direct help or advice with something specific to your fintech system, I do a bit of [consulting](https://w.pitula.me/#consulting) and will be glad to help!
+A maior parte do conteúdo foi escrita pela minha própria mão, mas usei IA para muitas coisas, como polimento,
+estruturação, pesquisa e revisão.
+
+Este livro é pensado como um documento vivo, e planejo atualizá-lo regularmente quando encontrar algo digno de acréscimo.
+Feedback é muito bem-vindo e pode ser compartilhado em qualquer lugar, mas
+[GitHub Issues](https://github.com/Krever/fintech-engineering-handbook/issues) é provavelmente o melhor lugar para isso.
+
+### O que esperar
+
+A maior parte do livro deveria ser prefixada com "depende", como basicamente qualquer tópico não trivial. Mas tal aviso
+não serve a nada. Em vez disso, tento dar um conselho padrão seguro e contexto suficiente para o leitor decidir se um
+dado conselho se aplica à sua situação.
+
+O conteúdo do livro cobre os tópicos sobre os quais sei algo, o que deixa grandes lacunas, por exemplo, em torno de
+negociação hardcore, precificação, mercado de capitais e mais. Ainda assim o título é genérico e aspiracional — eu
+adoraria cobrir o máximo possível do espaço de fintech. Se você acha que algo importante e amplamente útil está
+faltando, por favor me avise.
+
+Boa parte do material (idempotência, ordenação, retries, conciliação) é prática geral de sistemas distribuídos, mas está
+incluída aqui porque esses tópicos são críticos quando os riscos são altos, e conhecimento obrigatório para qualquer
+engenheiro de fintech.
+
+O livro foi escrito com um leitor pensante em mente, e presumo que ninguém o seguirá cegamente. Nem é preciso dizer que
+suas diretrizes e práticas internas têm precedência sobre o conselho que compartilho (embora este possa te levar a
+questionar aquelas). E nada aqui é aconselhamento jurídico, de compliance ou financeiro. Claro.
+
+### Precisa de mais ajuda?
+
+Se você precisa de ajuda ou conselho direto com algo específico do seu sistema de fintech, o autor original presta um
+pouco de [consultoria](https://w.pitula.me/#consulting) e ficará feliz em ajudar!
 

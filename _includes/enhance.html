@@ -6,7 +6,8 @@
 //      (Quarto's built-in highlight does not track scroll for a left TOC).
 (function () {
   // External links shown in the sidebar footer. Edit these URLs as needed.
-  var GITHUB_URL = 'https://github.com/Krever/fintech-engineering-handbook';
+  var GITHUB_URL = 'https://github.com/tarsiswt/fintech-engineering-handbook-pix-br'; // fonte desta edição (fork traduzido)
+  var TARSIS_URL = 'https://github.com/tarsiswt';
   var LINKEDIN_URL = 'https://www.linkedin.com/in/krever/';
   var X_URL = 'https://x.com/Krever01';
   var HOME_URL = 'https://w.pitula.me';
@@ -33,31 +34,37 @@
 
   function footerMarkup() {
     var listen = AUDIOBOOK_URL
-      ? '<a class="download-pill download-pill--listen" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
-          '<i class="bi bi-headphones"></i> Audiobook</a>'
+      ? '<a class="download-pill download-pill--listen" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener" title="\u00c1udiolivro da edi\u00e7\u00e3o original, em ingl\u00eas \u2014 n\u00e3o faz parte desta edi\u00e7\u00e3o">' +
+          '<i class="bi bi-headphones"></i> Audiobook (orig. EN)</a>'
       : '';
     return '' +
-      '<nav class="download-bar" aria-label="Download this handbook">' +
-        '<span class="download-bar__label">Take it with you</span>' +
+      '<nav class="download-bar" aria-label="Baixar este manual">' +
+        '<span class="download-bar__label">Leve com você</span>' +
         '<span class="download-pills">' +
           '<a class="download-pill" href="index.pdf"  download>PDF</a>' +
           '<a class="download-pill" href="index.epub" download>EPUB</a>' +
           listen +
         '</span>' +
       '</nav>' +
-      '<nav class="sidebar-links" aria-label="Source and author">' +
+      '<nav class="sidebar-links" aria-label="Fonte e autoria">' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Source on GitHub</span>' +
+          '<span class="sidebar-row__label">Código desta edição</span>' +
           '<span class="author-socials">' +
-            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Source on GitHub">' + GH_SVG + '</a>' +
+            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Código desta edição no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Voytek Pitula</span>' +
+          '<span class="sidebar-row__label">Voytek Pitula · autor original</span>' +
           '<span class="author-socials">' +
-            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Homepage">' + HOME_SVG + '</a>' +
+            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Página inicial">' + HOME_SVG + '</a>' +
             '<a href="' + LINKEDIN_URL + '" target="_blank" rel="noopener" aria-label="LinkedIn">' + LI_SVG + '</a>' +
             '<a href="' + X_URL + '" target="_blank" rel="noopener" aria-label="X">' + X_SVG + '</a>' +
+          '</span>' +
+        '</span>' +
+        '<span class="sidebar-row">' +
+          '<span class="sidebar-row__label">Társis Toledo · tradução</span>' +
+          '<span class="author-socials">' +
+            '<a href="' + TARSIS_URL + '" target="_blank" rel="noopener" aria-label="Társis Toledo no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
       '</nav>';
@@ -70,29 +77,35 @@
   // phone reader sees. Shown only on small screens via CSS.
   function grabCardMarkup() {
     var listen = AUDIOBOOK_URL
-      ? '<a class="grab-card__btn" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener">' +
-          '<i class="bi bi-headphones"></i> Audiobook</a>'
+      ? '<a class="grab-card__btn" href="' + AUDIOBOOK_URL + '" target="_blank" rel="noopener" title="\u00c1udiolivro da edi\u00e7\u00e3o original, em ingl\u00eas \u2014 n\u00e3o faz parte desta edi\u00e7\u00e3o">' +
+          '<i class="bi bi-headphones"></i> Audiobook (orig. EN)</a>'
       : '';
     return '' +
-      '<span class="grab-card__label">Take it with you</span>' +
+      '<span class="grab-card__label">Leve com você</span>' +
       '<div class="grab-card__actions">' +
         '<a class="grab-card__btn" href="index.pdf"  download><i class="bi bi-file-earmark-arrow-down"></i> PDF</a>' +
         '<a class="grab-card__btn" href="index.epub" download><i class="bi bi-book"></i> EPUB</a>' +
         listen +
       '</div>' +
-      '<nav class="grab-card__links" aria-label="Source and author">' +
+      '<nav class="grab-card__links" aria-label="Fonte e autoria">' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Source on GitHub</span>' +
+          '<span class="sidebar-row__label">Código desta edição</span>' +
           '<span class="author-socials">' +
-            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Source on GitHub">' + GH_SVG + '</a>' +
+            '<a href="' + GITHUB_URL + '" target="_blank" rel="noopener" aria-label="Código desta edição no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
         '<span class="sidebar-row">' +
-          '<span class="sidebar-row__label">Voytek Pitula</span>' +
+          '<span class="sidebar-row__label">Voytek Pitula · autor original</span>' +
           '<span class="author-socials">' +
-            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Homepage">' + HOME_SVG + '</a>' +
+            '<a href="' + HOME_URL + '" target="_blank" rel="noopener" aria-label="Página inicial">' + HOME_SVG + '</a>' +
             '<a href="' + LINKEDIN_URL + '" target="_blank" rel="noopener" aria-label="LinkedIn">' + LI_SVG + '</a>' +
             '<a href="' + X_URL + '" target="_blank" rel="noopener" aria-label="X">' + X_SVG + '</a>' +
+          '</span>' +
+        '</span>' +
+        '<span class="sidebar-row">' +
+          '<span class="sidebar-row__label">Társis Toledo · tradução</span>' +
+          '<span class="author-socials">' +
+            '<a href="' + TARSIS_URL + '" target="_blank" rel="noopener" aria-label="Társis Toledo no GitHub">' + GH_SVG + '</a>' +
           '</span>' +
         '</span>' +
       '</nav>';
@@ -112,7 +125,7 @@
     if (title && !document.querySelector('.grab-card')) {
       const card = document.createElement('aside');
       card.className = 'grab-card';
-      card.setAttribute('aria-label', 'Get this handbook');
+      card.setAttribute('aria-label', 'Leve este manual');
       card.innerHTML = grabCardMarkup();
       title.insertAdjacentElement('afterend', card);
     }
@@ -146,34 +159,7 @@
     update();
   }
 
-  // Download counting without touching UX. The PDF/EPUB links remain plain
-  // `download` anchors (instant save, no redirect), so we don't preventDefault.
-  // On click we additionally load a tiny hidden tracking page in an iframe;
-  // that page fires the Cloudflare beacon, registering a pageview at
-  // /dl/pdf.html or /dl/epub.html. Read those paths in the Cloudflare Web
-  // Analytics dashboard to see download counts. (Counts only — a static,
-  // login-less site cannot attribute downloads to a person.)
-  function trackDownloads() {
-    document.addEventListener('click', function (e) {
-      const a = e.target.closest('a[download]');
-      if (!a) return;
-      const href = a.getAttribute('href') || '';
-      let page = null;
-      if (/index\.pdf$/.test(href)) page = 'dl/pdf.html';
-      else if (/index\.epub$/.test(href)) page = 'dl/epub.html';
-      if (!page) return;
-      const ping = document.createElement('iframe');
-      ping.src = page;
-      ping.setAttribute('aria-hidden', 'true');
-      ping.style.cssText = 'position:absolute;width:0;height:0;border:0;left:-9999px;';
-      document.body.appendChild(ping);
-      // The real download keeps the page alive, so the beacon has time to send;
-      // clean up the iframe a few seconds later.
-      setTimeout(function () { ping.remove(); }, 5000);
-    }, { passive: true });
-  }
-
-  function init() { injectFooter(); scrollspy(); trackDownloads(); }
+  function init() { injectFooter(); scrollspy(); }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
