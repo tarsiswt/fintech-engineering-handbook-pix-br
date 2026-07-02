@@ -26,7 +26,7 @@ format:
     toc-location: left
     toc-depth: 4
     toc-expand: true
-    toc-title: "Contents"
+    toc-title: "Sumário"
     smooth-scroll: true
     anchor-sections: true
     link-external-icon: true
@@ -47,7 +47,7 @@ format:
   typst:
     papersize: a4
     toc: true
-    toc-title: "Contents"
+    toc-title: "Sumário"
 
   epub:
     toc: true
